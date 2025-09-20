@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Stablecoin Price Tracker</title>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/date-fns@2.29.3/index.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/ethers@6.8.0/dist/ethers.umd.min.js"></script>
     <style>
         * {
             margin: 0;
@@ -107,7 +107,7 @@
             margin: 0;
         }
 
-        select, input {
+        select, input, button {
             padding: 10px 15px;
             border: 2px solid #e2e8f0;
             border-radius: 10px;
@@ -116,7 +116,7 @@
             transition: border-color 0.2s ease;
         }
 
-        select:focus, input:focus {
+        select:focus, input:focus, button:focus {
             outline: none;
             border-color: #667eea;
             box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
@@ -147,6 +147,23 @@
         .oracle-btn:hover:not(.active) {
             border-color: #667eea;
             color: #667eea;
+        }
+
+        .refresh-btn {
+            background: #38a169;
+            color: white;
+            border: none;
+            cursor: pointer;
+            font-weight: 600;
+        }
+
+        .refresh-btn:hover {
+            background: #2f855a;
+        }
+
+        .refresh-btn:disabled {
+            background: #a0aec0;
+            cursor: not-allowed;
         }
 
         .chart-container {
@@ -186,7 +203,7 @@
 
         .stat-header {
             display: flex;
-            justify-content: between;
+            justify-content: space-between;
             align-items: center;
             margin-bottom: 15px;
         }
@@ -246,6 +263,16 @@
         .status-stale { background: #ed8936; }
         .status-error { background: #e53e3e; }
 
+        .connection-status {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 10px 15px;
+            background: #f7fafc;
+            border-radius: 8px;
+            font-size: 0.9rem;
+        }
+
         @media (max-width: 768px) {
             .container { padding: 15px; }
             .header h1 { font-size: 2rem; }
@@ -272,17 +299,7 @@
                 </div>
 
                 <div class="filter-group">
-                    <label>Time Range</label>
-                    <select id="timeRange">
-                        <option value="1h">Last Hour</option>
-                        <option value="24h" selected>Last 24 Hours</option>
-                        <option value="7d">Last 7 Days</option>
-                        <option value="30d">Last 30 Days</option>
-                    </select>
-                </div>
-
-                <div class="filter-group">
-                    <label>Oracle Priority</label>
+                    <label>Oracle Source</label>
                     <div class="oracle-selector">
                         <div class="oracle-btn active" data-oracle="chainlink">Chainlink</div>
                         <div class="oracle-btn" data-oracle="redstone">Redstone</div>
@@ -291,13 +308,16 @@
                 </div>
 
                 <div class="filter-group">
-                    <label>Refresh Rate</label>
-                    <select id="refreshRate">
-                        <option value="300000">5 minutes</option>
-                        <option value="900000" selected>15 minutes</option>
-                        <option value="1800000">30 minutes</option>
-                        <option value="3600000">1 hour</option>
-                    </select>
+                    <label>Actions</label>
+                    <button class="refresh-btn" id="refreshBtn">🔄 Refresh Now</button>
+                </div>
+
+                <div class="filter-group">
+                    <label>Connection Status</label>
+                    <div class="connection-status" id="connectionStatus">
+                        <span class="status-indicator status-error"></span>
+                        Connecting...
+                    </div>
                 </div>
             </div>
         </div>
@@ -314,24 +334,15 @@
     </div>
 
     <script>
-        // Stablecoin configuration with oracle addresses
+        // Enhanced stablecoin configuration with production oracle addresses
         const STABLECOINS = {
-            'GHO': {
-                symbol: 'GHO',
-                name: 'GHO',
-                oracles: {
-                    chainlink: '0x3f12643D3f6f874d39C2a4c9f2Cd6f2DbAC877FC',
-                    redstone: null, // Add when available
-                    pyth: '0x...', // Add Pyth price feed ID
-                }
-            },
             'USDC': {
                 symbol: 'USDC',
                 name: 'USD Coin',
                 oracles: {
                     chainlink: '0x8fFfFfd4AfB6115b954Bd326cbe7B4BA576818f6',
-                    redstone: 'redstone-usdc-feed',
-                    pyth: '0xeaa020c61cc479712813461ce153894a96a6c00b21ed0cfc2798d1f9a9e9c94a',
+                    redstone: 'USDC',
+                    pyth: '0xeaa020c61cc479712813461ce153894a96a6c00b21ed0cfc2798d1f9a9e9c94a'
                 }
             },
             'USDT': {
@@ -339,8 +350,17 @@
                 name: 'Tether USD',
                 oracles: {
                     chainlink: '0x3E7d1eAB13ad0104d2750B8863b489D65364e32D',
-                    redstone: 'redstone-usdt-feed',
-                    pyth: '0x2b89b9dc8fdf9f34709a5b106b472f0f39bb6ca9ce04b0fd7f2e971688e2e53b',
+                    redstone: 'USDT',
+                    pyth: '0x2b89b9dc8fdf9f34709a5b106b472f0f39bb6ca9ce04b0fd7f2e971688e2e53b'
+                }
+            },
+            'GHO': {
+                symbol: 'GHO',
+                name: 'GHO Stablecoin',
+                oracles: {
+                    chainlink: '0x3f12643D3f6f874d39C2a4c9f2Cd6f2DbAC877FC',
+                    redstone: null,
+                    pyth: null
                 }
             },
             'crvUSD': {
@@ -349,64 +369,235 @@
                 oracles: {
                     chainlink: '0xEEf0C605546958c1f899b6fB336C20671f9cD49F',
                     redstone: null,
-                    pyth: null,
-                }
-            },
-            'frxUSD': {
-                symbol: 'frxUSD',
-                name: 'Frax USD',
-                oracles: {
-                    chainlink: null,
-                    redstone: 'redstone-frxusd-feed',
-                    pyth: null,
-                }
-            },
-            'BOLD': {
-                symbol: 'BOLD',
-                name: 'Bold USD',
-                oracles: {
-                    chainlink: null,
-                    redstone: null,
-                    pyth: null, // New token, may not have feeds yet
-                }
-            },
-            'M': {
-                symbol: 'M',
-                name: 'M by Morpho',
-                oracles: {
-                    chainlink: null,
-                    redstone: null,
-                    pyth: null,
-                }
-            },
-            'USDG': {
-                symbol: 'USDG',
-                name: 'USD Governance',
-                oracles: {
-                    chainlink: null,
-                    redstone: null,
-                    pyth: null,
+                    pyth: null
                 }
             }
         };
 
+        // Chainlink Price Feed ABI
+        const CHAINLINK_ABI = [
+            {
+                "inputs": [],
+                "name": "latestRoundData",
+                "outputs": [
+                    {"internalType": "uint80", "name": "roundId", "type": "uint80"},
+                    {"internalType": "int256", "name": "answer", "type": "int256"},
+                    {"internalType": "uint256", "name": "startedAt", "type": "uint256"},
+                    {"internalType": "uint256", "name": "updatedAt", "type": "uint256"},
+                    {"internalType": "uint80", "name": "answeredInRound", "type": "uint80"}
+                ],
+                "stateMutability": "view",
+                "type": "function"
+            }
+        ];
+
         // Application state
         let appState = {
-            selectedStablecoins: new Set(Object.keys(STABLECOINS)),
+            selectedStablecoins: new Set(['USDC', 'USDT', 'GHO', 'crvUSD']),
             selectedOracle: 'chainlink',
-            timeRange: '24h',
-            refreshRate: 900000, // 15 minutes
             priceData: {},
             chart: null,
-            refreshInterval: null
+            provider: null,
+            refreshInterval: null,
+            isLoading: false
         };
 
+        // Public RPC endpoints (you should replace with your own for production)
+        const RPC_ENDPOINTS = [
+            'https://eth.llamarpc.com',
+            'https://rpc.ankr.com/eth',
+            'https://eth-mainnet.public.blastapi.io',
+            'https://ethereum.publicnode.com'
+        ];
+
+        // Initialize provider with fallback
+        async function initProvider() {
+            for (const rpcUrl of RPC_ENDPOINTS) {
+                try {
+                    const provider = new ethers.JsonRpcProvider(rpcUrl);
+                    await provider.getBlockNumber(); // Test connection
+                    appState.provider = provider;
+                    updateConnectionStatus('Connected to Ethereum', 'live');
+                    return provider;
+                } catch (error) {
+                    console.warn(`Failed to connect to ${rpcUrl}:`, error);
+                }
+            }
+            updateConnectionStatus('Failed to connect to Ethereum', 'error');
+            throw new Error('All RPC endpoints failed');
+        }
+
+        // Update connection status
+        function updateConnectionStatus(message, status) {
+            const statusEl = document.getElementById('connectionStatus');
+            const indicator = statusEl.querySelector('.status-indicator');
+            
+            indicator.className = `status-indicator status-${status}`;
+            statusEl.innerHTML = `<span class="status-indicator status-${status}"></span>${message}`;
+        }
+
+        // Get Chainlink price
+        async function getChainlinkPrice(feedAddress) {
+            try {
+                if (!appState.provider) throw new Error('Provider not initialized');
+                
+                const contract = new ethers.Contract(feedAddress, CHAINLINK_ABI, appState.provider);
+                const roundData = await contract.latestRoundData();
+                
+                return {
+                    price: Number(roundData.answer) / 1e8,
+                    timestamp: new Date(Number(roundData.updatedAt) * 1000),
+                    oracle: 'chainlink',
+                    roundId: Number(roundData.roundId)
+                };
+            } catch (error) {
+                console.error(`Chainlink feed error for ${feedAddress}:`, error);
+                return null;
+            }
+        }
+
+        // Get Redstone price
+        async function getRedstonePrice(symbol) {
+            try {
+                const response = await fetch(`https://api.redstone.finance/prices?symbol=${symbol}&provider=redstone-primary-prod`, {
+                    headers: {
+                        'Accept': 'application/json',
+                    }
+                });
+                
+                if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                
+                const data = await response.json();
+                
+                if (data && data[symbol]) {
+                    return {
+                        price: data[symbol].value,
+                        timestamp: new Date(data[symbol].timestamp),
+                        oracle: 'redstone',
+                        source: data[symbol].source
+                    };
+                }
+                return null;
+            } catch (error) {
+                console.error(`Redstone feed error for ${symbol}:`, error);
+                return null;
+            }
+        }
+
+        // Get Pyth price
+        async function getPythPrice(priceId) {
+            try {
+                const response = await fetch(`https://hermes.pyth.network/v2/updates/price/latest?ids[]=${priceId}`, {
+                    headers: {
+                        'Accept': 'application/json',
+                    }
+                });
+                
+                if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                
+                const data = await response.json();
+                
+                if (data.parsed && data.parsed.length > 0) {
+                    const priceData = data.parsed[0].price;
+                    const price = Number(priceData.price) * Math.pow(10, priceData.expo);
+                    
+                    return {
+                        price: price,
+                        timestamp: new Date(Number(priceData.publish_time) * 1000),
+                        oracle: 'pyth',
+                        confidence: Number(priceData.conf) * Math.pow(10, priceData.expo)
+                    };
+                }
+                return null;
+            } catch (error) {
+                console.error(`Pyth feed error for ${priceId}:`, error);
+                return null;
+            }
+        }
+
+        // Fetch price data
+        async function fetchPriceData() {
+            if (appState.isLoading) return;
+            
+            appState.isLoading = true;
+            const refreshBtn = document.getElementById('refreshBtn');
+            refreshBtn.disabled = true;
+            refreshBtn.textContent = '🔄 Loading...';
+
+            try {
+                const promises = Array.from(appState.selectedStablecoins).map(async symbol => {
+                    const config = STABLECOINS[symbol];
+                    const oracleConfig = config.oracles[appState.selectedOracle];
+                    
+                    if (!oracleConfig) {
+                        return { symbol, data: null, error: 'Oracle not available' };
+                    }
+
+                    let priceData;
+                    try {
+                        switch (appState.selectedOracle) {
+                            case 'chainlink':
+                                priceData = await getChainlinkPrice(oracleConfig);
+                                break;
+                            case 'redstone':
+                                priceData = await getRedstonePrice(oracleConfig);
+                                break;
+                            case 'pyth':
+                                priceData = await getPythPrice(oracleConfig);
+                                break;
+                            default:
+                                throw new Error('Unknown oracle');
+                        }
+                        
+                        return { symbol, data: priceData, error: null };
+                    } catch (error) {
+                        return { symbol, data: null, error: error.message };
+                    }
+                });
+
+                const results = await Promise.all(promises);
+                
+                results.forEach(result => {
+                    if (result.data) {
+                        if (!appState.priceData[result.symbol]) {
+                            appState.priceData[result.symbol] = [];
+                        }
+                        appState.priceData[result.symbol].push(result.data);
+                        
+                        // Keep only last 100 data points
+                        if (appState.priceData[result.symbol].length > 100) {
+                            appState.priceData[result.symbol] = appState.priceData[result.symbol].slice(-100);
+                        }
+                    }
+                });
+
+                updateChart();
+                updateStats();
+                
+            } catch (error) {
+                console.error('Error fetching price data:', error);
+                updateConnectionStatus('Error fetching data', 'error');
+            } finally {
+                appState.isLoading = false;
+                refreshBtn.disabled = false;
+                refreshBtn.textContent = '🔄 Refresh Now';
+            }
+        }
+
         // Initialize the application
-        function initApp() {
-            setupFilters();
-            setupEventListeners();
-            initChart();
-            startDataFetching();
+        async function initApp() {
+            try {
+                updateConnectionStatus('Initializing...', 'stale');
+                await initProvider();
+                setupFilters();
+                setupEventListeners();
+                initChart();
+                await fetchPriceData();
+                startAutoRefresh();
+            } catch (error) {
+                console.error('Failed to initialize app:', error);
+                updateConnectionStatus('Initialization failed', 'error');
+            }
         }
 
         // Setup stablecoin filters
@@ -454,17 +645,8 @@
                 });
             });
 
-            // Time range selector
-            document.getElementById('timeRange').addEventListener('change', (e) => {
-                appState.timeRange = e.target.value;
-                fetchPriceData();
-            });
-
-            // Refresh rate selector
-            document.getElementById('refreshRate').addEventListener('change', (e) => {
-                appState.refreshRate = parseInt(e.target.value);
-                restartDataFetching();
-            });
+            // Refresh button
+            document.getElementById('refreshBtn').addEventListener('click', fetchPriceData);
         }
 
         // Initialize chart
@@ -473,7 +655,6 @@
             appState.chart = new Chart(ctx, {
                 type: 'line',
                 data: {
-                    labels: [],
                     datasets: []
                 },
                 options: {
@@ -493,7 +674,12 @@
                     scales: {
                         x: {
                             type: 'time',
-                            time: { unit: 'hour' },
+                            time: { 
+                                unit: 'hour',
+                                displayFormats: {
+                                    hour: 'HH:mm'
+                                }
+                            },
                             title: { display: true, text: 'Time' }
                         },
                         y: {
@@ -515,87 +701,6 @@
             });
         }
 
-        // Generate mock price data (replace with real oracle calls)
-        function generateMockPriceData(symbol) {
-            const now = Date.now();
-            const timeRangeMs = {
-                '1h': 60 * 60 * 1000,
-                '24h': 24 * 60 * 60 * 1000,
-                '7d': 7 * 24 * 60 * 60 * 1000,
-                '30d': 30 * 24 * 60 * 60 * 1000
-            };
-
-            const duration = timeRangeMs[appState.timeRange];
-            const points = Math.min(100, duration / (15 * 60 * 1000)); // Max 100 points
-            const interval = duration / points;
-
-            const data = [];
-            let basePrice = 1.0;
-            
-            // Add some realistic volatility for different stablecoins
-            const volatility = {
-                'USDC': 0.001,
-                'USDT': 0.002,
-                'GHO': 0.005,
-                'crvUSD': 0.003,
-                'frxUSD': 0.002,
-                'BOLD': 0.008,
-                'M': 0.006,
-                'USDG': 0.004
-            };
-
-            const vol = volatility[symbol] || 0.003;
-
-            for (let i = 0; i < points; i++) {
-                const timestamp = now - duration + (i * interval);
-                const randomChange = (Math.random() - 0.5) * vol * 2;
-                basePrice += randomChange;
-                basePrice = Math.max(0.95, Math.min(1.05, basePrice)); // Keep within bounds
-                
-                data.push({
-                    timestamp: new Date(timestamp),
-                    price: basePrice,
-                    oracle: appState.selectedOracle
-                });
-            }
-
-            return data;
-        }
-
-        // Fetch price data (mock implementation)
-        async function fetchPriceData() {
-            const promises = Array.from(appState.selectedStablecoins).map(async symbol => {
-                // In a real implementation, this would call the actual oracle contracts
-                const config = STABLECOINS[symbol];
-                const oracleAddress = config.oracles[appState.selectedOracle];
-                
-                if (!oracleAddress) {
-                    return { symbol, data: null, error: 'Oracle not available' };
-                }
-
-                try {
-                    // Simulate API call delay
-                    await new Promise(resolve => setTimeout(resolve, Math.random() * 500));
-                    
-                    const data = generateMockPriceData(symbol);
-                    return { symbol, data, error: null };
-                } catch (error) {
-                    return { symbol, data: null, error: error.message };
-                }
-            });
-
-            const results = await Promise.all(promises);
-            
-            results.forEach(result => {
-                if (result.data) {
-                    appState.priceData[result.symbol] = result.data;
-                }
-            });
-
-            updateChart();
-            updateStats();
-        }
-
         // Update chart with current data
         function updateChart() {
             if (!appState.chart) return;
@@ -612,18 +717,10 @@
             };
 
             const datasets = [];
-            const allTimestamps = new Set();
-
-            // Collect all timestamps
-            Object.values(appState.priceData).forEach(data => {
-                data?.forEach(point => allTimestamps.add(point.timestamp.getTime()));
-            });
-
-            const sortedTimestamps = Array.from(allTimestamps).sort().map(ts => new Date(ts));
 
             appState.selectedStablecoins.forEach(symbol => {
                 const data = appState.priceData[symbol];
-                if (!data) return;
+                if (!data || data.length === 0) return;
 
                 datasets.push({
                     label: symbol,
@@ -635,11 +732,12 @@
                     backgroundColor: colors[symbol] + '20',
                     borderWidth: 2,
                     fill: false,
-                    tension: 0.1
+                    tension: 0.1,
+                    pointRadius: 2,
+                    pointHoverRadius: 4
                 });
             });
 
-            appState.chart.data.labels = sortedTimestamps;
             appState.chart.data.datasets = datasets;
             appState.chart.update('none');
         }
@@ -657,38 +755,41 @@
                 card.className = 'stat-card';
 
                 if (!data || data.length === 0) {
+                    const hasOracle = config.oracles[appState.selectedOracle];
                     card.innerHTML = `
                         <div class="stat-header">
                             <span class="stat-symbol">${symbol}</span>
                             <span class="stat-oracle">${appState.selectedOracle}</span>
                         </div>
-                        <div class="stat-price" style="color: #718096;">No Data</div>
+                        <div class="stat-price" style="color: #718096;">${hasOracle ? 'Loading...' : 'No Oracle'}</div>
                         <div class="stat-change neutral">
-                            <span class="status-indicator status-error"></span>
-                            Oracle not available
+                            <span class="status-indicator ${hasOracle ? 'status-stale' : 'status-error'}"></span>
+                            ${hasOracle ? 'Fetching data...' : 'Oracle not available'}
                         </div>
                     `;
                 } else {
                     const latest = data[data.length - 1];
                     const previous = data.length > 1 ? data[data.length - 2] : latest;
                     const change = latest.price - previous.price;
-                    const changePercent = (change / previous.price) * 100;
+                    const changePercent = previous.price !== 0 ? (change / previous.price) * 100 : 0;
 
-                    const isStale = Date.now() - latest.timestamp.getTime() > 60000; // 1 minute
+                    const isStale = Date.now() - latest.timestamp.getTime() > 3600000; // 1 hour
                     const statusClass = isStale ? 'status-stale' : 'status-live';
                     const statusText = isStale ? 'Stale' : 'Live';
+                    
+                    const deviation = Math.abs(latest.price - 1.0) * 100;
 
                     card.innerHTML = `
                         <div class="stat-header">
                             <span class="stat-symbol">${symbol}</span>
                             <span class="stat-oracle">${appState.selectedOracle}</span>
                         </div>
-                        <div class="stat-price ${change > 0 ? 'positive' : change < 0 ? 'negative' : 'neutral'}">
+                        <div class="stat-price ${latest.price > 1.01 ? 'positive' : latest.price < 0.99 ? 'negative' : 'neutral'}">
                             $${latest.price.toFixed(4)}
                         </div>
                         <div class="stat-change ${change > 0 ? 'positive' : change < 0 ? 'negative' : 'neutral'}">
                             <span class="status-indicator ${statusClass}"></span>
-                            ${change >= 0 ? '+' : ''}${changePercent.toFixed(3)}% • ${statusText}
+                            ${change >= 0 ? '+' : ''}${changePercent.toFixed(3)}% • Dev: ${deviation.toFixed(2)}% • ${statusText}
                         </div>
                     `;
                 }
@@ -697,48 +798,16 @@
             });
         }
 
-        // Start data fetching with intervals
-        function startDataFetching() {
-            fetchPriceData();
-            appState.refreshInterval = setInterval(fetchPriceData, appState.refreshRate);
-        }
-
-        // Restart data fetching with new interval
-        function restartDataFetching() {
+        // Start auto refresh every 15 minutes
+        function startAutoRefresh() {
             if (appState.refreshInterval) {
                 clearInterval(appState.refreshInterval);
             }
-            startDataFetching();
+            appState.refreshInterval = setInterval(fetchPriceData, 15 * 60 * 1000); // 15 minutes
         }
 
         // Initialize app when DOM is loaded
         document.addEventListener('DOMContentLoaded', initApp);
-
-        // Real Oracle Integration Functions (for future implementation)
-        
-        // Chainlink Price Feed Interface
-        async function getChainlinkPrice(feedAddress) {
-            // This would use ethers.js or web3.js to call the Chainlink aggregator
-            // const aggregator = new ethers.Contract(feedAddress, ABI, provider);
-            // const latestRound = await aggregator.latestRoundData();
-            // return latestRound.answer / 10**8; // Chainlink uses 8 decimals
-        }
-
-        // Redstone Price Feed Interface  
-        async function getRedstonePrice(feedId) {
-            // This would call Redstone's API or on-chain contracts
-            // const response = await fetch(`https://api.redstone.finance/prices?symbol=${feedId}`);
-            // const data = await response.json();
-            // return data.value;
-        }
-
-        // Pyth Price Feed Interface
-        async function getPythPrice(priceId) {
-            // This would use Pyth's EVM SDK
-            // const pythContract = new ethers.Contract(PYTH_CONTRACT_ADDRESS, ABI, provider);
-            // const priceData = await pythContract.getPriceUnsafe(priceId);
-            // return priceData.price / 10**priceData.expo;
-        }
     </script>
 </body>
 </html>
