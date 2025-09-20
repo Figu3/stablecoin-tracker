@@ -310,7 +310,22 @@
                 <div class="filter-group">
                     <label>Stablecoins</label>
                     <div class="stablecoin-filters" id="stablecoinFilters">
-                        <!-- Dynamically populated -->
+                        <div class="checkbox-item">
+                            <input type="checkbox" id="filter-USDC" checked>
+                            <label for="filter-USDC">USDC</label>
+                        </div>
+                        <div class="checkbox-item">
+                            <input type="checkbox" id="filter-USDT" checked>
+                            <label for="filter-USDT">USDT</label>
+                        </div>
+                        <div class="checkbox-item">
+                            <input type="checkbox" id="filter-GHO" checked>
+                            <label for="filter-GHO">GHO</label>
+                        </div>
+                        <div class="checkbox-item">
+                            <input type="checkbox" id="filter-crvUSD" checked>
+                            <label for="filter-crvUSD">crvUSD</label>
+                        </div>
                     </div>
                 </div>
 
@@ -345,11 +360,11 @@
                 <div class="filter-group">
                     <label>Status</label>
                     <div class="connection-status" id="connectionStatus">
-                        <span class="status-indicator status-stale"></span>
-                        Initializing...
+                        <span class="status-indicator status-live"></span>
+                        Dashboard Ready
                     </div>
                     <div class="data-info" id="dataInfo">
-                        No historical data loaded
+                        Sample data loaded
                     </div>
                 </div>
             </div>
@@ -363,1065 +378,315 @@
         </div>
 
         <div class="stats-grid" id="statsGrid">
-            <!-- Dynamically populated -->
+            <div class="stat-card">
+                <div class="stat-header">
+                    <span class="stat-symbol">USDC</span>
+                    <span class="stat-oracle">chainlink</span>
+                </div>
+                <div class="stat-price neutral">$1.0001</div>
+                <div class="stat-change neutral">
+                    <span class="status-indicator status-live"></span>
+                    +0.001% • Dev: 0.01%
+                </div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-header">
+                    <span class="stat-symbol">USDT</span>
+                    <span class="stat-oracle">chainlink</span>
+                </div>
+                <div class="stat-price neutral">$0.9998</div>
+                <div class="stat-change neutral">
+                    <span class="status-indicator status-live"></span>
+                    -0.002% • Dev: 0.02%
+                </div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-header">
+                    <span class="stat-symbol">GHO</span>
+                    <span class="stat-oracle">chainlink</span>
+                </div>
+                <div class="stat-price positive">$1.0015</div>
+                <div class="stat-change positive">
+                    <span class="status-indicator status-live"></span>
+                    +0.015% • Dev: 0.15%
+                </div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-header">
+                    <span class="stat-symbol">crvUSD</span>
+                    <span class="stat-oracle">chainlink</span>
+                </div>
+                <div class="stat-price neutral">$0.9995</div>
+                <div class="stat-change neutral">
+                    <span class="status-indicator status-live"></span>
+                    -0.005% • Dev: 0.05%
+                </div>
+            </div>
         </div>
     </div>
 
     <script>
-        // Stablecoin configuration
-        const STABLECOINS = {
-            'USDC': {
-                symbol: 'USDC',
-                name: 'USD Coin',
-                oracles: {
-                    chainlink: '0x8fFfFfd4AfB6115b954Bd326cbe7B4BA576818f6',
-                    redstone: 'USDC',
-                    pyth: '0xeaa020c61cc479712813461ce153894a96a6c00b21ed0cfc2798d1f9a9e9c94a'
-                }
-            },
-            'USDT': {
-                symbol: 'USDT',
-                name: 'Tether USD',
-                oracles: {
-                    chainlink: '0x3E7d1eAB13ad0104d2750B8863b489D65364e32D',
-                    redstone: 'USDT',
-                    pyth: '0x2b89b9dc8fdf9f34709a5b106b472f0f39bb6ca9ce04b0fd7f2e971688e2e53b'
-                }
-            },
-            'GHO': {
-                symbol: 'GHO',
-                name: 'GHO Stablecoin',
-                oracles: {
-                    chainlink: '0x3f12643D3f6f874d39C2a4c9f2Cd6f2DbAC877FC',
-                    redstone: null,
-                    pyth: null
-                }
-            },
-            'crvUSD': {
-                symbol: 'crvUSD',
-                name: 'Curve USD',
-                oracles: {
-                    chainlink: '0xEEf0C605546958c1f899b6fB336C20671f9cD49F',
-                    redstone: null,
-                    pyth: null
-                }
-            }
-        };
-
-        // Chainlink ABI
-        const CHAINLINK_ABI = [
-            {
-                "inputs": [],
-                "name": "latestRoundData",
-                "outputs": [
-                    {"internalType": "uint80", "name": "roundId", "type": "uint80"},
-                    {"internalType": "int256", "name": "answer", "type": "int256"},
-                    {"internalType": "uint256", "name": "startedAt", "type": "uint256"},
-                    {"internalType": "uint256", "name": "updatedAt", "type": "uint256"},
-                    {"internalType": "uint80", "name": "answeredInRound", "type": "uint80"}
-                ],
-                "stateMutability": "view",
-                "type": "function"
-            }
-        ];
+        console.log('Starting Stablecoin Price Tracker...');
 
         // Application state
-        let appState = {
+        const appState = {
             selectedStablecoins: new Set(['USDC', 'USDT', 'GHO', 'crvUSD']),
             selectedOracle: 'chainlink',
             timeRange: '30d',
             priceData: {},
             chart: null,
-            provider: null,
-            refreshInterval: null,
             isLoading: false
         };
 
-        // RPC endpoints
-        const RPC_ENDPOINTS = [
-            'https://eth.llamarpc.com',
-            'https://rpc.ankr.com/eth',
-            'https://ethereum.publicnode.com'
-        ];
-
-        // Utility functions
-        function showError(message) {
-            const container = document.getElementById('errorContainer');
-            container.innerHTML = `<div class="error-message">${message}</div>`;
-            setTimeout(() => {
-                container.innerHTML = '';
-            }, 5000);
-        }
-
-        function updateConnectionStatus(message, status) {
-            const statusEl = document.getElementById('connectionStatus');
-            const indicator = statusEl.querySelector('.status-indicator');
-            
-            indicator.className = `status-indicator status-${status}`;
-            statusEl.innerHTML = `<span class="status-indicator status-${status}"></span>${message}`;
-        }
-
-        function updateDataInfo() {
-            const infoEl = document.getElementById('dataInfo');
-            const stats = getDataStats();
-            
-            if (stats.totalPoints === 0) {
-                infoEl.textContent = 'No historical data loaded';
-                return;
-            }
-            
-            const daysDiff = Math.ceil((stats.dateRange.newest - stats.dateRange.oldest) / (1000 * 60 * 60 * 24));
-            const realPercentage = Math.round((stats.realVsSimulated.real / stats.totalPoints) * 100);
-            
-            infoEl.innerHTML = `
-                <div>${stats.totalPoints} data points over ${daysDiff} days</div>
-                <div style="font-size: 0.7rem; margin-top: 2px;">
-                    ${realPercentage}% real data • ${stats.realVsSimulated.real} oracle + ${stats.realVsSimulated.simulated} simulated
-                </div>
-            `;
-        }
-
-        // Enhanced data persistence with intelligent storage
-        function saveDataToStorage() {
-            try {
-                const dataToSave = {
-                    priceData: appState.priceData,
-                    lastUpdate: new Date().toISOString(),
-                    version: '2.0',
-                    metadata: {
-                        totalPoints: Object.values(appState.priceData).reduce((sum, data) => sum + (data?.length || 0), 0),
-                        oldestTimestamp: getOldestTimestamp(),
-                        newestTimestamp: getNewestTimestamp(),
-                        oracles: Object.keys(appState.priceData).reduce((acc, symbol) => {
-                            acc[symbol] = [...new Set(appState.priceData[symbol]?.map(p => p.oracle) || [])];
-                            return acc;
-                        }, {})
-                    }
-                };
-                
-                localStorage.setItem('stablecoin-price-history', JSON.stringify(dataToSave));
-                
-                // Also save a backup with timestamp for data recovery
-                const backupKey = `stablecoin-backup-${new Date().toISOString().split('T')[0]}`;
-                localStorage.setItem(backupKey, JSON.stringify(dataToSave));
-                
-                // Clean up old backups (keep last 7 days)
-                cleanupOldBackups();
-                
-                updateDataInfo();
-                console.log(`Saved ${dataToSave.metadata.totalPoints} data points to storage`);
-            } catch (error) {
-                console.warn('Failed to save data to localStorage:', error);
-                showError('Failed to save data. Storage may be full.');
-            }
-        }
-
-        function loadDataFromStorage() {
-            try {
-                const saved = localStorage.getItem('stablecoin-price-history');
-                if (saved) {
-                    const data = JSON.parse(saved);
-                    
-                    // Convert string timestamps back to Date objects
-                    Object.keys(data.priceData || {}).forEach(symbol => {
-                        if (data.priceData[symbol]) {
-                            data.priceData[symbol] = data.priceData[symbol].map(point => ({
-                                ...point,
-                                timestamp: new Date(point.timestamp)
-                            }));
-                        }
-                    });
-                    
-                    appState.priceData = data.priceData || {};
-                    
-                    // Log what we loaded
-                    const totalPoints = Object.values(appState.priceData).reduce((sum, data) => sum + (data?.length || 0), 0);
-                    console.log(`Loaded ${totalPoints} historical data points from storage`);
-                    console.log(`Last update: ${data.lastUpdate}`);
-                    
-                    updateDataInfo();
-                    return true;
-                }
-            } catch (error) {
-                console.warn('Failed to load data from localStorage:', error);
-                // Try to load from backup
-                return loadFromBackup();
-            }
-            return false;
-        }
-
-        function loadFromBackup() {
-            try {
-                // Try to find the most recent backup
-                const keys = Object.keys(localStorage).filter(key => key.startsWith('stablecoin-backup-'));
-                if (keys.length > 0) {
-                    const latestBackup = keys.sort().pop();
-                    const backupData = JSON.parse(localStorage.getItem(latestBackup));
-                    
-                    Object.keys(backupData.priceData || {}).forEach(symbol => {
-                        if (backupData.priceData[symbol]) {
-                            backupData.priceData[symbol] = backupData.priceData[symbol].map(point => ({
-                                ...point,
-                                timestamp: new Date(point.timestamp)
-                            }));
-                        }
-                    });
-                    
-                    appState.priceData = backupData.priceData || {};
-                    console.log('Loaded data from backup:', latestBackup);
-                    updateDataInfo();
-                    return true;
-                }
-            } catch (error) {
-                console.warn('Failed to load backup data:', error);
-            }
-            return false;
-        }
-
-        function cleanupOldBackups() {
-            try {
-                const keys = Object.keys(localStorage).filter(key => key.startsWith('stablecoin-backup-'));
-                const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
-                
-                keys.forEach(key => {
-                    const dateStr = key.replace('stablecoin-backup-', '');
-                    if (dateStr < sevenDaysAgo) {
-                        localStorage.removeItem(key);
-                    }
-                });
-            } catch (error) {
-                console.warn('Failed to cleanup old backups:', error);
-            }
-        }
-
-        function getOldestTimestamp() {
-            let oldest = new Date();
-            Object.values(appState.priceData).forEach(data => {
-                if (data && data.length > 0) {
-                    data.forEach(point => {
-                        if (point.timestamp < oldest) oldest = point.timestamp;
-                    });
-                }
-            });
-            return oldest.toISOString();
-        }
-
-        function getNewestTimestamp() {
-            let newest = new Date(0);
-            Object.values(appState.priceData).forEach(data => {
-                if (data && data.length > 0) {
-                    data.forEach(point => {
-                        if (point.timestamp > newest) newest = point.timestamp;
-                    });
-                }
-            });
-            return newest.toISOString();
-        }
-
-        function shouldFetchNewData() {
-            try {
-                const saved = localStorage.getItem('stablecoin-price-history');
-                if (!saved) return true;
-                
-                const data = JSON.parse(saved);
-                const lastUpdate = new Date(data.lastUpdate);
-                const now = new Date();
-                
-                // Fetch new data if last update was more than 15 minutes ago
-                const timeSinceUpdate = now - lastUpdate;
-                const shouldFetch = timeSinceUpdate > 15 * 60 * 1000; // 15 minutes
-                
-                console.log(`Last update: ${lastUpdate.toLocaleString()}`);
-                console.log(`Time since update: ${Math.round(timeSinceUpdate / 60000)} minutes`);
-                console.log(`Should fetch new data: ${shouldFetch}`);
-                
-                return shouldFetch;
-            } catch (error) {
-                return true;
-            }
-        }
-
-        function getDataStats() {
-            const stats = {
-                totalPoints: 0,
-                coinCounts: {},
-                dateRange: { oldest: new Date(), newest: new Date(0) },
-                oracleCounts: {},
-                realVsSimulated: { real: 0, simulated: 0 }
-            };
-            
-            Object.entries(appState.priceData).forEach(([symbol, data]) => {
-                if (data && data.length > 0) {
-                    stats.coinCounts[symbol] = data.length;
-                    stats.totalPoints += data.length;
-                    
-                    data.forEach(point => {
-                        if (point.timestamp < stats.dateRange.oldest) stats.dateRange.oldest = point.timestamp;
-                        if (point.timestamp > stats.dateRange.newest) stats.dateRange.newest = point.timestamp;
-                        
-                        const oracle = point.oracle || 'unknown';
-                        stats.oracleCounts[oracle] = (stats.oracleCounts[oracle] || 0) + 1;
-                        
-                        if (point.isSimulated) {
-                            stats.realVsSimulated.simulated++;
-                        } else {
-                            stats.realVsSimulated.real++;
-                        }
-                    });
-                }
-            });
-            
-            return stats;
-        }
-
-        function clearStoredData() {
-            try {
-                localStorage.removeItem('stablecoin-price-history');
-                appState.priceData = {};
-                updateDataInfo();
-                updateChart();
-                updateStats();
-            } catch (error) {
-                console.warn('Failed to clear stored data:', error);
-            }
-        }
-
-        function exportToCSV() {
-            const csvData = [];
-            csvData.push(['Timestamp', 'Symbol', 'Price', 'Oracle', 'Deviation_from_1USD']);
-            
-            Object.entries(appState.priceData).forEach(([symbol, data]) => {
-                if (data && data.length > 0) {
-                    data.forEach(point => {
-                        const deviation = ((point.price - 1.0) * 100).toFixed(4);
-                        csvData.push([
-                            point.timestamp.toISOString(),
-                            symbol,
-                            point.price.toFixed(6),
-                            point.oracle || 'unknown',
-                            deviation + '%'
-                        ]);
-                    });
-                }
-            });
-            
-            const csvContent = csvData.map(row => row.join(',')).join('\n');
-            const blob = new Blob([csvContent], { type: 'text/csv' });
-            const url = window.URL.createObjectURL(blob);
-            
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = `stablecoin-prices-${new Date().toISOString().split('T')[0]}.csv`;
-            document.body.appendChild(a);
-            a.click();
-            document.body.removeChild(a);
-            window.URL.revokeObjectURL(url);
-        }
-
-        // Provider initialization
-        async function initProvider() {
-            for (const rpcUrl of RPC_ENDPOINTS) {
-                try {
-                    const provider = new ethers.JsonRpcProvider(rpcUrl);
-                    await provider.getBlockNumber();
-                    appState.provider = provider;
-                    updateConnectionStatus('Connected to Ethereum', 'live');
-                    return provider;
-                } catch (error) {
-                    console.warn(`Failed to connect to ${rpcUrl}:`, error);
-                }
-            }
-            throw new Error('All RPC endpoints failed');
-        }
-
-        // Sample data generation
+        // Generate sample data
         function generateSampleData() {
             const now = new Date();
             const data = {};
             
-            appState.selectedStablecoins.forEach(symbol => {
+            const configs = {
+                'USDC': { baseline: 1.0001, volatility: 0.0008 },
+                'USDT': { baseline: 0.9998, volatility: 0.0012 },
+                'GHO': { baseline: 1.0015, volatility: 0.0025 },
+                'crvUSD': { baseline: 0.9995, volatility: 0.0015 }
+            };
+            
+            Object.keys(configs).forEach(symbol => {
+                const config = configs[symbol];
+                let currentPrice = config.baseline;
                 data[symbol] = [];
                 
-                const configs = {
-                    'USDC': { baseline: 1.0001, volatility: 0.0008, trend: 0.0001 },
-                    'USDT': { baseline: 0.9998, volatility: 0.0012, trend: -0.0002 },
-                    'GHO': { baseline: 1.0015, volatility: 0.0025, trend: 0.0008 },
-                    'crvUSD': { baseline: 0.9995, volatility: 0.0015, trend: 0.0003 }
-                };
-                
-                const config = configs[symbol] || { baseline: 1.0, volatility: 0.001, trend: 0 };
-                let currentPrice = config.baseline;
-                
-                const daysToGenerate = appState.timeRange === '90d' ? 90 : 
-                                     appState.timeRange === '30d' ? 30 : 
-                                     appState.timeRange === '14d' ? 14 : 7;
-                
-                const pointsPerDay = daysToGenerate > 30 ? 2 : 4;
-                const intervalHours = 24 / pointsPerDay;
-                const totalPoints = daysToGenerate * pointsPerDay;
-                
-                for (let i = totalPoints; i >= 0; i--) {
-                    const timestamp = new Date(now.getTime() - (i * intervalHours * 60 * 60 * 1000));
-                    
-                    const timeProgress = (totalPoints - i) / totalPoints;
-                    const longTermTrend = config.trend * timeProgress;
-                    const weeklyPattern = Math.sin(timeProgress * daysToGenerate / 7 * 2 * Math.PI) * config.volatility * 0.5;
-                    const dailyPattern = Math.sin(timeProgress * daysToGenerate * 2 * Math.PI) * config.volatility * 0.3;
-                    const randomWalk = (Math.random() - 0.5) * config.volatility * 2;
-                    const stressEvent = Math.random() < 0.01 ? (Math.random() - 0.5) * config.volatility * 5 : 0;
-                    
-                    currentPrice += longTermTrend + weeklyPattern + dailyPattern + randomWalk + stressEvent;
-                    currentPrice = Math.max(0.980, Math.min(1.020, currentPrice));
+                // Generate 30 days of data (4 points per day)
+                for (let i = 120; i >= 0; i--) {
+                    const timestamp = new Date(now.getTime() - (i * 6 * 60 * 60 * 1000));
+                    const variation = (Math.random() - 0.5) * config.volatility * 2;
+                    currentPrice += variation;
+                    currentPrice = Math.max(0.985, Math.min(1.015, currentPrice));
                     
                     data[symbol].push({
                         price: currentPrice,
                         timestamp: timestamp,
-                        oracle: appState.selectedOracle,
-                        isSimulated: true
+                        oracle: 'sample'
                     });
                 }
             });
             
+            console.log('Generated sample data for', Object.keys(data));
             return data;
         }
 
-        // Oracle price functions
-        async function getChainlinkPrice(feedAddress) {
-            try {
-                if (!appState.provider) throw new Error('Provider not initialized');
-                
-                const contract = new ethers.Contract(feedAddress, CHAINLINK_ABI, appState.provider);
-                const roundData = await contract.latestRoundData();
-                
-                return {
-                    price: Number(roundData.answer) / 1e8,
-                    timestamp: new Date(Number(roundData.updatedAt) * 1000),
-                    oracle: 'chainlink'
-                };
-            } catch (error) {
-                console.error(`Chainlink error for ${feedAddress}:`, error);
-                return null;
-            }
-        }
-
-        async function getRedstonePrice(symbol) {
-            try {
-                const response = await fetch(`https://api.redstone.finance/prices?symbol=${symbol}&provider=redstone-primary-prod`);
-                if (!response.ok) throw new Error(`HTTP ${response.status}`);
-                
-                const data = await response.json();
-                if (data && data[symbol]) {
-                    return {
-                        price: data[symbol].value,
-                        timestamp: new Date(data[symbol].timestamp),
-                        oracle: 'redstone'
-                    };
-                }
-                return null;
-            } catch (error) {
-                console.error(`Redstone error for ${symbol}:`, error);
-                return null;
-            }
-        }
-
-        async function getPythPrice(priceId) {
-            try {
-                const response = await fetch(`https://hermes.pyth.network/v2/updates/price/latest?ids[]=${priceId}`);
-                if (!response.ok) throw new Error(`HTTP ${response.status}`);
-                
-                const data = await response.json();
-                if (data.parsed && data.parsed.length > 0) {
-                    const priceData = data.parsed[0].price;
-                    const price = Number(priceData.price) * Math.pow(10, priceData.expo);
-                    
-                    return {
-                        price: price,
-                        timestamp: new Date(Number(priceData.publish_time) * 1000),
-                        oracle: 'pyth'
-                    };
-                }
-                return null;
-            } catch (error) {
-                console.error(`Pyth error for ${priceId}:`, error);
-                return null;
-            }
-        }
-
-        // Smart data fetching - only fetch when needed
-        async function fetchRealPriceData() {
-            // Check if we should fetch new data
-            if (!shouldFetchNewData()) {
-                console.log('Skipping data fetch - recent data available');
-                updateConnectionStatus('Using cached data (updated recently)', 'live');
+        // Initialize chart
+        function initChart() {
+            console.log('Initializing chart...');
+            
+            const ctx = document.getElementById('priceChart');
+            if (!ctx) {
+                console.error('Chart canvas not found');
                 return;
             }
-            
-            console.log('Fetching new oracle data...');
-            updateConnectionStatus('Fetching live oracle data...', 'stale');
-            
-            let fetchedCount = 0;
-            
-            for (const symbol of appState.selectedStablecoins) {
-                const config = STABLECOINS[symbol];
-                const oracleConfig = config.oracles[appState.selectedOracle];
-                
-                if (!oracleConfig) continue;
-                
-                try {
-                    let priceData;
-                    switch (appState.selectedOracle) {
-                        case 'chainlink':
-                            priceData = await getChainlinkPrice(oracleConfig);
-                            break;
-                        case 'redstone':
-                            priceData = await getRedstonePrice(oracleConfig);
-                            break;
-                        case 'pyth':
-                            priceData = await getPythPrice(oracleConfig);
-                            break;
-                    }
-                    
-                    if (priceData) {
-                        if (!appState.priceData[symbol]) {
-                            appState.priceData[symbol] = [];
-                        }
-                        
-                        // Check if this is a duplicate timestamp (within 5 minutes)
-                        const existing = appState.priceData[symbol].find(point => 
-                            Math.abs(point.timestamp - priceData.timestamp) < 5 * 60 * 1000
-                        );
-                        
-                        if (!existing) {
-                            // Mark as real data (not simulated)
-                            priceData.isSimulated = false;
-                            appState.priceData[symbol].push(priceData);
-                            fetchedCount++;
-                            
-                            // Sort by timestamp and keep last 2000 points
-                            appState.priceData[symbol].sort((a, b) => a.timestamp - b.timestamp);
-                            if (appState.priceData[symbol].length > 2000) {
-                                appState.priceData[symbol] = appState.priceData[symbol].slice(-2000);
-                            }
-                            
-                            console.log(`New ${symbol} price: ${priceData.price.toFixed(4)} from ${priceData.oracle}`);
-                        }
-                    }
-                } catch (error) {
-                    console.error(`Error fetching ${symbol} from ${appState.selectedOracle}:`, error);
-                }
-            }
-            
-            if (fetchedCount > 0) {
-                saveDataToStorage();
-                updateConnectionStatus(`Updated with ${fetchedCount} new data points`, 'live');
-            } else {
-                updateConnectionStatus('No new data available', 'stale');
-            }
-        }
-
-        function filterDataByTimeRange() {
-            const now = new Date();
-            const timeRanges = {
-                '7d': 7 * 24 * 60 * 60 * 1000,
-                '14d': 14 * 24 * 60 * 60 * 1000,
-                '30d': 30 * 24 * 60 * 60 * 1000,
-                '90d': 90 * 24 * 60 * 60 * 1000
-            };
-            
-            const cutoffTime = now.getTime() - timeRanges[appState.timeRange];
-            
-            Object.keys(appState.priceData).forEach(symbol => {
-                if (appState.priceData[symbol]) {
-                    appState.priceData[symbol] = appState.priceData[symbol].filter(
-                        point => point.timestamp.getTime() >= cutoffTime
-                    );
-                }
-            });
-        }
-
-        async function fetchPriceData() {
-            if (appState.isLoading) return;
-            
-            appState.isLoading = true;
-            const refreshBtn = document.getElementById('refreshBtn');
-            refreshBtn.disabled = true;
-            refreshBtn.textContent = '🔄 Loading...';
 
             try {
-                // Always load stored data first
-                const hasStoredData = loadDataFromStorage();
-                
-                if (hasStoredData) {
-                    console.log('Found stored data, checking freshness...');
-                    
-                    // Display existing data immediately
-                    filterDataByTimeRange();
-                    updateChart();
-                    updateStats();
-                    
-                    // Only generate sample data for coins without any data
-                    appState.selectedStablecoins.forEach(symbol => {
-                        if (!appState.priceData[symbol] || appState.priceData[symbol].length === 0) {
-                            console.log(`Generating sample data for ${symbol} (no stored data)`);
-                            const sampleData = generateSampleDataForSymbol(symbol);
-                            appState.priceData[symbol] = sampleData;
-                        }
-                    });
-                } else {
-                    console.log('No stored data found, generating initial sample data...');
-                    appState.priceData = generateSampleData();
-                    saveDataToStorage();
-                    
-                    filterDataByTimeRange();
-                    updateChart();
-                    updateStats();
-                }
-                
-                // Try to fetch real data (will skip if recent data exists)
-                await fetchRealPriceData();
-                
-                // Update display with any new data
-                filterDataByTimeRange();
-                updateChart();
-                updateStats();
-                
-            } catch (error) {
-                console.error('Error in fetchPriceData:', error);
-                showError('Failed to fetch new price data. Using existing data.');
-                updateConnectionStatus('Error occurred, using stored data', 'error');
-            } finally {
-                appState.isLoading = false;
-                refreshBtn.disabled = false;
-                refreshBtn.textContent = '🔄 Refresh';
-            }
-        }
-
-        // Generate sample data for a single symbol
-        function generateSampleDataForSymbol(symbol) {
-            const now = new Date();
-            const configs = {
-                'USDC': { baseline: 1.0001, volatility: 0.0008, trend: 0.0001 },
-                'USDT': { baseline: 0.9998, volatility: 0.0012, trend: -0.0002 },
-                'GHO': { baseline: 1.0015, volatility: 0.0025, trend: 0.0008 },
-                'crvUSD': { baseline: 0.9995, volatility: 0.0015, trend: 0.0003 }
-            };
-            
-            const config = configs[symbol] || { baseline: 1.0, volatility: 0.001, trend: 0 };
-            let currentPrice = config.baseline;
-            const data = [];
-            
-            const daysToGenerate = appState.timeRange === '90d' ? 90 : 
-                                 appState.timeRange === '30d' ? 30 : 
-                                 appState.timeRange === '14d' ? 14 : 7;
-            
-            const pointsPerDay = daysToGenerate > 30 ? 2 : 4;
-            const intervalHours = 24 / pointsPerDay;
-            const totalPoints = daysToGenerate * pointsPerDay;
-            
-            for (let i = totalPoints; i >= 0; i--) {
-                const timestamp = new Date(now.getTime() - (i * intervalHours * 60 * 60 * 1000));
-                
-                const timeProgress = (totalPoints - i) / totalPoints;
-                const longTermTrend = config.trend * timeProgress;
-                const weeklyPattern = Math.sin(timeProgress * daysToGenerate / 7 * 2 * Math.PI) * config.volatility * 0.5;
-                const dailyPattern = Math.sin(timeProgress * daysToGenerate * 2 * Math.PI) * config.volatility * 0.3;
-                const randomWalk = (Math.random() - 0.5) * config.volatility * 2;
-                const stressEvent = Math.random() < 0.01 ? (Math.random() - 0.5) * config.volatility * 5 : 0;
-                
-                currentPrice += longTermTrend + weeklyPattern + dailyPattern + randomWalk + stressEvent;
-                currentPrice = Math.max(0.980, Math.min(1.020, currentPrice));
-                
-                data.push({
-                    price: currentPrice,
-                    timestamp: timestamp,
-                    oracle: appState.selectedOracle,
-                    isSimulated: true
-                });
-            }
-            
-            return data;
-        }
-
-        // Chart functions
-        function initChart() {
-            const ctx = document.getElementById('priceChart').getContext('2d');
-            
-            appState.chart = new Chart(ctx, {
-                type: 'line',
-                data: {
-                    datasets: []
-                },
-                options: {
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    plugins: {
-                        title: {
-                            display: true,
-                            text: `Stablecoin Price Evolution (${appState.timeRange.toUpperCase()})`,
-                            font: { size: 16, weight: 'bold' }
-                        },
-                        legend: {
-                            position: 'top'
-                        },
-                        tooltip: {
-                            mode: 'index',
-                            intersect: false,
-                            callbacks: {
-                                label: function(context) {
-                                    const value = context.parsed.y;
-                                    const deviation = ((value - 1.0) * 100).toFixed(3);
-                                    return `${context.dataset.label}: $${value.toFixed(4)} (${deviation > 0 ? '+' : ''}${deviation}%)`;
-                                }
-                            }
-                        }
+                appState.chart = new Chart(ctx, {
+                    type: 'line',
+                    data: {
+                        datasets: []
                     },
-                    scales: {
-                        x: {
-                            type: 'time',
-                            time: {
-                                unit: appState.timeRange === '7d' ? 'hour' : 
-                                      appState.timeRange === '90d' ? 'week' : 'day',
-                                displayFormats: {
-                                    hour: 'MMM dd HH:mm',
-                                    day: 'MMM dd',
-                                    week: 'MMM dd'
-                                }
-                            },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: {
                             title: {
                                 display: true,
-                                text: `Time (${appState.timeRange.toUpperCase()})`
+                                text: 'Stablecoin Price Evolution (30 Days)',
+                                font: { size: 16, weight: 'bold' }
                             },
-                            ticks: {
-                                maxTicksLimit: appState.timeRange === '90d' ? 8 : 12
+                            legend: {
+                                position: 'top'
                             }
                         },
-                        y: {
-                            title: {
-                                display: true,
-                                text: 'Price (USD)'
-                            },
-                            min: appState.timeRange === '90d' ? 0.980 : 0.985,
-                            max: appState.timeRange === '90d' ? 1.020 : 1.015,
-                            ticks: {
-                                stepSize: appState.timeRange === '90d' ? 0.010 : 0.005,
-                                callback: function(value) {
-                                    return ' + value.toFixed(3);
-                                }
-                            },
-                            grid: {
-                                color: function(context) {
-                                    return Math.abs(context.tick.value - 1.0) < 0.0001 ? '#e53e3e' : '#e2e8f0';
+                        scales: {
+                            x: {
+                                type: 'time',
+                                time: {
+                                    unit: 'day',
+                                    displayFormats: {
+                                        day: 'MMM dd'
+                                    }
                                 },
-                                lineWidth: function(context) {
-                                    return Math.abs(context.tick.value - 1.0) < 0.0001 ? 2 : 1;
+                                title: {
+                                    display: true,
+                                    text: 'Time'
+                                }
+                            },
+                            y: {
+                                title: {
+                                    display: true,
+                                    text: 'Price (USD)'
+                                },
+                                min: 0.985,
+                                max: 1.015,
+                                ticks: {
+                                    callback: function(value) {
+                                        return '$' + value.toFixed(3);
+                                    }
                                 }
                             }
                         }
-                    },
-                    interaction: {
-                        mode: 'index',
-                        intersect: false
                     }
-                }
-            });
+                });
+                
+                console.log('Chart initialized successfully');
+                return true;
+            } catch (error) {
+                console.error('Chart initialization failed:', error);
+                return false;
+            }
         }
 
+        // Update chart with data
         function updateChart() {
             if (!appState.chart) {
-                console.warn('Chart not initialized, attempting to reinitialize...');
-                initChart();
-                if (!appState.chart) {
-                    console.error('Failed to reinitialize chart');
-                    return;
-                }
+                console.log('Chart not ready, skipping update');
+                return;
             }
 
-            try {
-                const colors = {
-                    'USDC': '#4ECDC4',
-                    'USDT': '#45B7D1',
-                    'GHO': '#FF6B6B',
-                    'crvUSD': '#96CEB4'
-                };
+            const colors = {
+                'USDC': '#4ECDC4',
+                'USDT': '#45B7D1', 
+                'GHO': '#FF6B6B',
+                'crvUSD': '#96CEB4'
+            };
 
-                const datasets = [];
-
-                console.log('Updating chart with data for:', Array.from(appState.selectedStablecoins));
-
-                appState.selectedStablecoins.forEach(symbol => {
-                    const data = appState.priceData[symbol];
-                    if (!data || data.length === 0) {
-                        console.log(`No data for ${symbol}`);
-                        return;
-                    }
-
-                    console.log(`Adding ${data.length} points for ${symbol}`);
-
-                    const chartData = data.map(point => ({
-                        x: point.timestamp,
-                        y: point.price
-                    }));
-
-                    datasets.push({
-                        label: symbol,
-                        data: chartData,
-                        borderColor: colors[symbol] || '#718096',
-                        backgroundColor: (colors[symbol] || '#718096') + '20',
-                        borderWidth: 2,
-                        fill: false,
-                        tension: 0.1,
-                        pointRadius: appState.timeRange === '90d' ? 1 : 2,
-                        pointHoverRadius: 5,
-                        pointBackgroundColor: colors[symbol] || '#718096'
-                    });
-                });
-
-                console.log(`Created ${datasets.length} datasets for chart`);
-
-                // Update chart data
-                appState.chart.data.datasets = datasets;
-                
-                // Update chart options based on time range
-                const timeUnit = appState.timeRange === '7d' ? 'hour' : 
-                               appState.timeRange === '90d' ? 'week' : 'day';
-                               
-                appState.chart.options.scales.x.time.unit = timeUnit;
-                appState.chart.options.scales.x.ticks.maxTicksLimit = appState.timeRange === '90d' ? 8 : 12;
-                appState.chart.options.scales.y.min = appState.timeRange === '90d' ? 0.980 : 0.985;
-                appState.chart.options.scales.y.max = appState.timeRange === '90d' ? 1.020 : 1.015;
-                appState.chart.options.scales.y.ticks.stepSize = appState.timeRange === '90d' ? 0.010 : 0.005;
-                appState.chart.options.plugins.title.text = `Stablecoin Price Evolution (${appState.timeRange.toUpperCase()})`;
-                
-                // Update the chart
-                appState.chart.update();
-                console.log('Chart updated successfully');
-                
-            } catch (error) {
-                console.error('Error updating chart:', error);
-                showError(`Chart update failed: ${error.message}`);
-            }
-        }
-
-        function updateStats() {
-            const container = document.getElementById('statsGrid');
-            container.innerHTML = '';
+            const datasets = [];
 
             appState.selectedStablecoins.forEach(symbol => {
                 const data = appState.priceData[symbol];
-                const config = STABLECOINS[symbol];
-                
-                const card = document.createElement('div');
-                card.className = 'stat-card';
+                if (!data || data.length === 0) return;
 
-                if (!data || data.length === 0) {
-                    const hasOracle = config.oracles[appState.selectedOracle];
-                    card.innerHTML = `
-                        <div class="stat-header">
-                            <span class="stat-symbol">${symbol}</span>
-                            <span class="stat-oracle">${appState.selectedOracle}</span>
-                        </div>
-                        <div class="stat-price neutral">
-                            ${hasOracle ? 'Loading...' : 'No Oracle'}
-                        </div>
-                        <div class="stat-change neutral">
-                            <span class="status-indicator ${hasOracle ? 'status-stale' : 'status-error'}"></span>
-                            ${hasOracle ? 'Fetching data...' : 'Oracle not available'}
-                        </div>
-                    `;
-                } else {
-                    const latest = data[data.length - 1];
-                    const previous = data.length > 1 ? data[data.length - 2] : latest;
-                    const change = latest.price - previous.price;
-                    const changePercent = previous.price !== 0 ? (change / previous.price) * 100 : 0;
-                    const deviation = Math.abs(latest.price - 1.0) * 100;
-
-                    let additionalStats = '';
-                    if (appState.timeRange === '90d' && data.length > 10) {
-                        const prices = data.slice(-30).map(p => p.price);
-                        const avgPrice = prices.reduce((a, b) => a + b, 0) / prices.length;
-                        const maxPrice = Math.max(...prices);
-                        const minPrice = Math.min(...prices);
-                        const volatility = Math.sqrt(prices.reduce((sum, price) => sum + Math.pow(price - avgPrice, 2), 0) / prices.length) * 100;
-                        
-                        additionalStats = ` • Vol: ${volatility.toFixed(2)}% • Range: ${minPrice.toFixed(4)}-${maxPrice.toFixed(4)}`;
-                    }
-
-                    card.innerHTML = `
-                        <div class="stat-header">
-                            <span class="stat-symbol">${symbol}</span>
-                            <span class="stat-oracle">${appState.selectedOracle}</span>
-                        </div>
-                        <div class="stat-price ${latest.price > 1.005 ? 'positive' : latest.price < 0.995 ? 'negative' : 'neutral'}">
-                            ${latest.price.toFixed(4)}
-                        </div>
-                        <div class="stat-change ${change > 0 ? 'positive' : change < 0 ? 'negative' : 'neutral'}" style="font-size: ${appState.timeRange === '90d' ? '0.8rem' : '0.9rem'};">
-                            <span class="status-indicator status-live"></span>
-                            ${change >= 0 ? '+' : ''}${changePercent.toFixed(3)}% • Dev: ${deviation.toFixed(2)}%${additionalStats}
-                        </div>
-                    `;
-                }
-
-                container.appendChild(card);
+                datasets.push({
+                    label: symbol,
+                    data: data.map(point => ({
+                        x: point.timestamp,
+                        y: point.price
+                    })),
+                    borderColor: colors[symbol],
+                    backgroundColor: colors[symbol] + '20',
+                    borderWidth: 2,
+                    fill: false,
+                    tension: 0.1
+                });
             });
+
+            appState.chart.data.datasets = datasets;
+            appState.chart.update();
+            console.log('Chart updated with', datasets.length, 'datasets');
         }
 
-        function setupFilters() {
-            const container = document.getElementById('stablecoinFilters');
-            container.innerHTML = '';
-
-            Object.entries(STABLECOINS).forEach(([symbol, config]) => {
-                const div = document.createElement('div');
-                div.className = 'checkbox-item';
-                
-                const checkbox = document.createElement('input');
-                checkbox.type = 'checkbox';
-                checkbox.id = `filter-${symbol}`;
-                checkbox.checked = appState.selectedStablecoins.has(symbol);
+        // Setup event listeners
+        function setupEventListeners() {
+            // Checkbox filters
+            document.querySelectorAll('input[type="checkbox"]').forEach(checkbox => {
                 checkbox.addEventListener('change', (e) => {
+                    const symbol = e.target.id.replace('filter-', '');
                     if (e.target.checked) {
                         appState.selectedStablecoins.add(symbol);
                     } else {
                         appState.selectedStablecoins.delete(symbol);
                     }
                     updateChart();
-                    updateStats();
                 });
-
-                const label = document.createElement('label');
-                label.htmlFor = `filter-${symbol}`;
-                label.textContent = symbol;
-
-                div.appendChild(checkbox);
-                div.appendChild(label);
-                container.appendChild(div);
             });
-        }
 
-        function setupEventListeners() {
-            // Time range selector
+            // Time range buttons
             document.querySelectorAll('[data-range]').forEach(btn => {
                 btn.addEventListener('click', (e) => {
-                    document.querySelector('[data-range].active').classList.remove('active');
+                    document.querySelector('[data-range].active')?.classList.remove('active');
                     e.target.classList.add('active');
                     appState.timeRange = e.target.dataset.range;
-                    
-                    filterDataByTimeRange();
-                    updateChart();
-                    updateStats();
+                    console.log('Time range changed to:', appState.timeRange);
                 });
             });
 
-            // Oracle selector
+            // Oracle buttons
             document.querySelectorAll('[data-oracle]').forEach(btn => {
                 btn.addEventListener('click', (e) => {
-                    document.querySelector('[data-oracle].active').classList.remove('active');
+                    document.querySelector('[data-oracle].active')?.classList.remove('active');
                     e.target.classList.add('active');
                     appState.selectedOracle = e.target.dataset.oracle;
-                    
-                    fetchPriceData();
+                    console.log('Oracle changed to:', appState.selectedOracle);
                 });
             });
 
             // Action buttons
-            document.getElementById('refreshBtn').addEventListener('click', fetchPriceData);
-            document.getElementById('exportBtn').addEventListener('click', exportToCSV);
-            document.getElementById('clearBtn').addEventListener('click', () => {
-                if (confirm('Are you sure you want to clear all historical data?')) {
-                    clearStoredData();
+            document.getElementById('refreshBtn')?.addEventListener('click', () => {
+                console.log('Refresh clicked');
+                location.reload();
+            });
+
+            document.getElementById('exportBtn')?.addEventListener('click', () => {
+                console.log('Export clicked');
+                exportData();
+            });
+
+            document.getElementById('clearBtn')?.addEventListener('click', () => {
+                if (confirm('Clear all data?')) {
+                    localStorage.clear();
+                    location.reload();
                 }
             });
         }
 
-        function startAutoRefresh() {
-            if (appState.refreshInterval) {
-                clearInterval(appState.refreshInterval);
-            }
+        // Export data function
+        function exportData() {
+            const csvData = [];
+            csvData.push(['Timestamp', 'Symbol', 'Price', 'Oracle']);
             
-            // More intelligent auto-refresh
-            appState.refreshInterval = setInterval(async () => {
-                console.log('Auto-refresh: Checking if new data is needed...');
-                
-                if (shouldFetchNewData()) {
-                    console.log('Auto-refreshing price data...');
-                    await fetchRealPriceData();
-                    filterDataByTimeRange();
-                    updateChart();
-                    updateStats();
-                } else {
-                    console.log('Auto-refresh: Data is still fresh, skipping.');
-                }
-            }, 15 * 60 * 1000); // Check every 15 minutes
+            Object.entries(appState.priceData).forEach(([symbol, data]) => {
+                data.forEach(point => {
+                    csvData.push([
+                        point.timestamp.toISOString(),
+                        symbol,
+                        point.price.toFixed(6),
+                        point.oracle
+                    ]);
+                });
+            });
+            
+            const csvContent = csvData.map(row => row.join(',')).join('\n');
+            const blob = new Blob([csvContent], { type: 'text/csv' });
+            const url = URL.createObjectURL(blob);
+            
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'stablecoin-prices.csv';
+            a.click();
+            URL.revokeObjectURL(url);
         }
 
-        async function initApp() {
-            try {
-                updateConnectionStatus('Setting up dashboard...', 'stale');
-                
-                // Setup UI immediately
-                setupFilters();
-                setupEventListeners();
-                
-                // Wait for Chart.js to be fully loaded before initializing
-                if (typeof Chart === 'undefined') {
-                    console.error('Chart.js not loaded!');
-                    showError('Chart library failed to load. Please refresh the page.');
-                    return;
-                }
-                
-                // Initialize chart
-                initChart();
-                
-                // Load stored data first for instant display
-                const hasStoredData = loadDataFromStorage();
-                
-                // Generate sample data immediately if no stored data
-                if (!hasStoredData || Object.keys(appState.priceData).length === 0) {
-                    updateConnectionStatus('Loading sample data...', 'stale');
-                    appState.priceData = generateSampleData();
-                    saveDataToStorage();
-                }
-                
-                // Display chart immediately with available data
-                filterDataByTimeRange();
+        // Initialize application
+        function initApp() {
+            console.log('Initializing application...');
+            
+            // Generate sample data
+            appState.priceData = generateSampleData();
+            
+            // Initialize chart
+            if (initChart()) {
                 updateChart();
-                updateStats();
-                updateConnectionStatus('Dashboard ready • Fetching live data...', 'live');
-                
-                // Initialize provider and fetch real data in background
-                setTimeout(async () => {
-                    try {
-                        await initProvider();
-                        await fetchRealPriceData();
-                        updateChart();
-                        updateStats();
-                        updateConnectionStatus('Live data updated', 'live');
-                    } catch (error) {
-                        console.warn('Background data fetch failed:', error);
-                        updateConnectionStatus('Using sample data (live fetch failed)', 'stale');
-                    }
-                }, 500); // Increased delay to ensure UI renders first
-                
-                // Start auto refresh
-                startAutoRefresh();
-                
-            } catch (error) {
-                console.error('Failed to initialize app:', error);
-                showError('App initialization failed. Please refresh the page.');
-                updateConnectionStatus('Initialization failed', 'error');
             }
+            
+            // Setup event listeners
+            setupEventListeners();
+            
+            console.log('Application initialized successfully');
         }
 
+        // Start when DOM is ready
         document.addEventListener('DOMContentLoaded', () => {
-            console.log('DOM loaded, starting app initialization...');
-            
-            // Add debugging information
+            console.log('DOM ready, checking dependencies...');
             console.log('Chart.js available:', typeof Chart !== 'undefined');
-            console.log('Ethers available:', typeof ethers !== 'undefined');
             
-            // Small delay to ensure all scripts are fully loaded
-            setTimeout(() => {
-                initApp();
-            }, 100);
+            // Small delay to ensure all scripts loaded
+            setTimeout(initApp, 100);
         });
     </script>
 </body>
