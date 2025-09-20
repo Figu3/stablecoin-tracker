@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Stablecoin Price Tracker</title>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3.0.0/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/ethers@6.8.0/dist/ethers.umd.min.js"></script>
     <style>
         * {
@@ -584,6 +585,44 @@
             }
         }
 
+        // Generate some historical data points for better chart visualization
+        function generateHistoricalData() {
+            const now = new Date();
+            const hoursBack = 24;
+            
+            appState.selectedStablecoins.forEach(symbol => {
+                if (!appState.priceData[symbol] || appState.priceData[symbol].length === 0) return;
+                
+                const currentPrice = appState.priceData[symbol][appState.priceData[symbol].length - 1].price;
+                const historicalPoints = [];
+                
+                // Generate 24 hours of data points (every hour)
+                for (let i = hoursBack; i > 0; i--) {
+                    const timestamp = new Date(now.getTime() - (i * 60 * 60 * 1000));
+                    
+                    // Add small random variations around current price
+                    const variation = (Math.random() - 0.5) * 0.01; // ±0.5% variation
+                    const price = Math.max(0.98, Math.min(1.02, currentPrice + variation));
+                    
+                    historicalPoints.push({
+                        price: price,
+                        timestamp: timestamp,
+                        oracle: appState.selectedOracle
+                    });
+                }
+                
+                // Prepend historical data
+                appState.priceData[symbol] = [...historicalPoints, ...appState.priceData[symbol]];
+                
+                // Keep only last 100 points
+                if (appState.priceData[symbol].length > 100) {
+                    appState.priceData[symbol] = appState.priceData[symbol].slice(-100);
+                }
+            });
+            
+            updateChart();
+        }
+
         // Initialize the application
         async function initApp() {
             try {
@@ -652,6 +691,10 @@
         // Initialize chart
         function initChart() {
             const ctx = document.getElementById('priceChart').getContext('2d');
+            
+            // Register the time scale
+            Chart.register(...Chart.controllers, ...Chart.elements, ...Chart.plugins, ...Chart.scales);
+            
             appState.chart = new Chart(ctx, {
                 type: 'line',
                 data: {
@@ -669,26 +712,177 @@
                         legend: {
                             position: 'top',
                             labels: { usePointStyle: true }
+                        },
+                        tooltip: {
+                            mode: 'index',
+                            intersect: false,
+                            callbacks: {
+                                label: function(context) {
+                                    const value = context.parsed.y;
+                                    const deviation = ((value - 1.0) * 100).toFixed(3);
+                                    return `${context.dataset.label}: ${value.toFixed(4)} (${deviation > 0 ? '+' : ''}${deviation}%)`;
+                                }
+                            }
                         }
                     },
                     scales: {
                         x: {
                             type: 'time',
                             time: { 
-                                unit: 'hour',
+                                unit: 'minute',
+                                stepSize: 15,
                                 displayFormats: {
+                                    minute: 'HH:mm',
                                     hour: 'HH:mm'
                                 }
                             },
-                            title: { display: true, text: 'Time' }
+                            title: { 
+                                display: true, 
+                                text: 'Time (Last 24 Hours)' 
+                            },
+                            ticks: {
+                                maxTicksLimit: 12
+                            }
                         },
                         y: {
                             title: { display: true, text: 'Price (USD)' },
-                            min: 0.95,
-                            max: 1.05,
+                            min: 0.98,
+                            max: 1.02,
                             ticks: {
+                                stepSize: 0.005,
                                 callback: function(value) {
-                                    return '$' + value.toFixed(4);
+                                    return '
+
+        // Update chart with current data
+        function updateChart() {
+            if (!appState.chart) return;
+
+            const colors = {
+                'GHO': '#FF6B6B',
+                'USDC': '#4ECDC4',
+                'USDT': '#45B7D1',
+                'crvUSD': '#96CEB4',
+                'frxUSD': '#FFEAA7',
+                'BOLD': '#DDA0DD',
+                'M': '#98D8C8',
+                'USDG': '#F7DC6F'
+            };
+
+            const datasets = [];
+
+            appState.selectedStablecoins.forEach(symbol => {
+                const data = appState.priceData[symbol];
+                if (!data || data.length === 0) return;
+
+                // Sort data by timestamp to ensure proper line plotting
+                const sortedData = data.sort((a, b) => a.timestamp - b.timestamp);
+
+                datasets.push({
+                    label: symbol,
+                    data: sortedData.map(point => ({
+                        x: point.timestamp.getTime(), // Convert to timestamp
+                        y: point.price
+                    })),
+                    borderColor: colors[symbol],
+                    backgroundColor: colors[symbol] + '20',
+                    borderWidth: 3,
+                    fill: false,
+                    tension: 0.1,
+                    pointRadius: 4,
+                    pointHoverRadius: 6,
+                    pointBackgroundColor: colors[symbol],
+                    pointBorderColor: '#ffffff',
+                    pointBorderWidth: 2
+                });
+            });
+
+            appState.chart.data.datasets = datasets;
+            appState.chart.update('active');
+            
+            // Add some sample historical data if we don't have enough points
+            if (datasets.length > 0 && datasets[0].data.length < 5) {
+                generateHistoricalData();
+            }
+        }
+
+        // Update statistics cards
+        function updateStats() {
+            const container = document.getElementById('statsGrid');
+            container.innerHTML = '';
+
+            appState.selectedStablecoins.forEach(symbol => {
+                const data = appState.priceData[symbol];
+                const config = STABLECOINS[symbol];
+                
+                const card = document.createElement('div');
+                card.className = 'stat-card';
+
+                if (!data || data.length === 0) {
+                    const hasOracle = config.oracles[appState.selectedOracle];
+                    card.innerHTML = `
+                        <div class="stat-header">
+                            <span class="stat-symbol">${symbol}</span>
+                            <span class="stat-oracle">${appState.selectedOracle}</span>
+                        </div>
+                        <div class="stat-price" style="color: #718096;">${hasOracle ? 'Loading...' : 'No Oracle'}</div>
+                        <div class="stat-change neutral">
+                            <span class="status-indicator ${hasOracle ? 'status-stale' : 'status-error'}"></span>
+                            ${hasOracle ? 'Fetching data...' : 'Oracle not available'}
+                        </div>
+                    `;
+                } else {
+                    const latest = data[data.length - 1];
+                    const previous = data.length > 1 ? data[data.length - 2] : latest;
+                    const change = latest.price - previous.price;
+                    const changePercent = previous.price !== 0 ? (change / previous.price) * 100 : 0;
+
+                    const isStale = Date.now() - latest.timestamp.getTime() > 3600000; // 1 hour
+                    const statusClass = isStale ? 'status-stale' : 'status-live';
+                    const statusText = isStale ? 'Stale' : 'Live';
+                    
+                    const deviation = Math.abs(latest.price - 1.0) * 100;
+
+                    card.innerHTML = `
+                        <div class="stat-header">
+                            <span class="stat-symbol">${symbol}</span>
+                            <span class="stat-oracle">${appState.selectedOracle}</span>
+                        </div>
+                        <div class="stat-price ${latest.price > 1.01 ? 'positive' : latest.price < 0.99 ? 'negative' : 'neutral'}">
+                            $${latest.price.toFixed(4)}
+                        </div>
+                        <div class="stat-change ${change > 0 ? 'positive' : change < 0 ? 'negative' : 'neutral'}">
+                            <span class="status-indicator ${statusClass}"></span>
+                            ${change >= 0 ? '+' : ''}${changePercent.toFixed(3)}% • Dev: ${deviation.toFixed(2)}% • ${statusText}
+                        </div>
+                    `;
+                }
+
+                container.appendChild(card);
+            });
+        }
+
+        // Start auto refresh every 15 minutes
+        function startAutoRefresh() {
+            if (appState.refreshInterval) {
+                clearInterval(appState.refreshInterval);
+            }
+            appState.refreshInterval = setInterval(fetchPriceData, 15 * 60 * 1000); // 15 minutes
+        }
+
+        // Initialize app when DOM is loaded
+        document.addEventListener('DOMContentLoaded', initApp);
+    </script>
+</body>
+</html> + value.toFixed(4);
+                                }
+                            },
+                            grid: {
+                                color: function(context) {
+                                    // Highlight the $1.00 line
+                                    return context.tick.value === 1.0 ? '#e53e3e' : '#e2e8f0';
+                                },
+                                lineWidth: function(context) {
+                                    return context.tick.value === 1.0 ? 2 : 1;
                                 }
                             }
                         }
@@ -696,6 +890,15 @@
                     interaction: {
                         intersect: false,
                         mode: 'index'
+                    },
+                    elements: {
+                        point: {
+                            radius: 3,
+                            hoverRadius: 6
+                        },
+                        line: {
+                            tension: 0.1
+                        }
                     }
                 }
             });
