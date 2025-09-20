@@ -1,0 +1,744 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Stablecoin Price Tracker</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/date-fns@2.29.3/index.min.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            color: #333;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+
+        .header {
+            text-align: center;
+            margin-bottom: 30px;
+            color: white;
+        }
+
+        .header h1 {
+            font-size: 2.5rem;
+            font-weight: 700;
+            margin-bottom: 10px;
+            text-shadow: 0 2px 4px rgba(0,0,0,0.3);
+        }
+
+        .header p {
+            font-size: 1.1rem;
+            opacity: 0.9;
+        }
+
+        .controls {
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(10px);
+            border-radius: 20px;
+            padding: 25px;
+            margin-bottom: 30px;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.1);
+        }
+
+        .filters {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+
+        .filter-group {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .filter-group label {
+            font-weight: 600;
+            color: #4a5568;
+            font-size: 0.9rem;
+        }
+
+        .stablecoin-filters {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+            gap: 10px;
+        }
+
+        .checkbox-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 12px;
+            background: #f7fafc;
+            border-radius: 8px;
+            transition: all 0.2s ease;
+            cursor: pointer;
+        }
+
+        .checkbox-item:hover {
+            background: #edf2f7;
+            transform: translateY(-1px);
+        }
+
+        .checkbox-item input[type="checkbox"] {
+            width: 16px;
+            height: 16px;
+            accent-color: #667eea;
+        }
+
+        .checkbox-item label {
+            font-weight: 500;
+            color: #2d3748;
+            cursor: pointer;
+            margin: 0;
+        }
+
+        select, input {
+            padding: 10px 15px;
+            border: 2px solid #e2e8f0;
+            border-radius: 10px;
+            background: white;
+            font-size: 14px;
+            transition: border-color 0.2s ease;
+        }
+
+        select:focus, input:focus {
+            outline: none;
+            border-color: #667eea;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        }
+
+        .oracle-selector {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+        }
+
+        .oracle-btn {
+            padding: 8px 16px;
+            border: 2px solid #e2e8f0;
+            background: white;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            font-weight: 500;
+        }
+
+        .oracle-btn.active {
+            background: #667eea;
+            color: white;
+            border-color: #667eea;
+        }
+
+        .oracle-btn:hover:not(.active) {
+            border-color: #667eea;
+            color: #667eea;
+        }
+
+        .chart-container {
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(10px);
+            border-radius: 20px;
+            padding: 25px;
+            margin-bottom: 30px;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.1);
+        }
+
+        .chart-wrapper {
+            position: relative;
+            height: 500px;
+            margin-bottom: 20px;
+        }
+
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+
+        .stat-card {
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(10px);
+            border-radius: 15px;
+            padding: 20px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.1);
+            transition: transform 0.2s ease;
+        }
+
+        .stat-card:hover {
+            transform: translateY(-2px);
+        }
+
+        .stat-header {
+            display: flex;
+            justify-content: between;
+            align-items: center;
+            margin-bottom: 15px;
+        }
+
+        .stat-symbol {
+            font-weight: 700;
+            font-size: 1.2rem;
+            color: #2d3748;
+        }
+
+        .stat-oracle {
+            font-size: 0.8rem;
+            color: #718096;
+            background: #f7fafc;
+            padding: 4px 8px;
+            border-radius: 6px;
+        }
+
+        .stat-price {
+            font-size: 2rem;
+            font-weight: 700;
+            margin-bottom: 5px;
+        }
+
+        .stat-change {
+            font-size: 0.9rem;
+            font-weight: 600;
+        }
+
+        .positive { color: #38a169; }
+        .negative { color: #e53e3e; }
+        .neutral { color: #718096; }
+
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: #718096;
+        }
+
+        .error {
+            background: #fed7d7;
+            color: #c53030;
+            padding: 15px;
+            border-radius: 10px;
+            margin: 20px 0;
+        }
+
+        .status-indicator {
+            display: inline-block;
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            margin-right: 8px;
+        }
+
+        .status-live { background: #38a169; }
+        .status-stale { background: #ed8936; }
+        .status-error { background: #e53e3e; }
+
+        @media (max-width: 768px) {
+            .container { padding: 15px; }
+            .header h1 { font-size: 2rem; }
+            .controls { padding: 20px; }
+            .filters { flex-direction: column; }
+            .stablecoin-filters { grid-template-columns: repeat(2, 1fr); }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🪙 Stablecoin Price Tracker</h1>
+            <p>Real-time price monitoring across Chainlink, Redstone & Pyth oracles</p>
+        </div>
+
+        <div class="controls">
+            <div class="filters">
+                <div class="filter-group">
+                    <label>Stablecoins</label>
+                    <div class="stablecoin-filters" id="stablecoinFilters">
+                        <!-- Dynamically populated -->
+                    </div>
+                </div>
+
+                <div class="filter-group">
+                    <label>Time Range</label>
+                    <select id="timeRange">
+                        <option value="1h">Last Hour</option>
+                        <option value="24h" selected>Last 24 Hours</option>
+                        <option value="7d">Last 7 Days</option>
+                        <option value="30d">Last 30 Days</option>
+                    </select>
+                </div>
+
+                <div class="filter-group">
+                    <label>Oracle Priority</label>
+                    <div class="oracle-selector">
+                        <div class="oracle-btn active" data-oracle="chainlink">Chainlink</div>
+                        <div class="oracle-btn" data-oracle="redstone">Redstone</div>
+                        <div class="oracle-btn" data-oracle="pyth">Pyth</div>
+                    </div>
+                </div>
+
+                <div class="filter-group">
+                    <label>Refresh Rate</label>
+                    <select id="refreshRate">
+                        <option value="300000">5 minutes</option>
+                        <option value="900000" selected>15 minutes</option>
+                        <option value="1800000">30 minutes</option>
+                        <option value="3600000">1 hour</option>
+                    </select>
+                </div>
+            </div>
+        </div>
+
+        <div class="chart-container">
+            <div class="chart-wrapper">
+                <canvas id="priceChart"></canvas>
+            </div>
+        </div>
+
+        <div class="stats-grid" id="statsGrid">
+            <!-- Dynamically populated -->
+        </div>
+    </div>
+
+    <script>
+        // Stablecoin configuration with oracle addresses
+        const STABLECOINS = {
+            'GHO': {
+                symbol: 'GHO',
+                name: 'GHO',
+                oracles: {
+                    chainlink: '0x3f12643D3f6f874d39C2a4c9f2Cd6f2DbAC877FC',
+                    redstone: null, // Add when available
+                    pyth: '0x...', // Add Pyth price feed ID
+                }
+            },
+            'USDC': {
+                symbol: 'USDC',
+                name: 'USD Coin',
+                oracles: {
+                    chainlink: '0x8fFfFfd4AfB6115b954Bd326cbe7B4BA576818f6',
+                    redstone: 'redstone-usdc-feed',
+                    pyth: '0xeaa020c61cc479712813461ce153894a96a6c00b21ed0cfc2798d1f9a9e9c94a',
+                }
+            },
+            'USDT': {
+                symbol: 'USDT',
+                name: 'Tether USD',
+                oracles: {
+                    chainlink: '0x3E7d1eAB13ad0104d2750B8863b489D65364e32D',
+                    redstone: 'redstone-usdt-feed',
+                    pyth: '0x2b89b9dc8fdf9f34709a5b106b472f0f39bb6ca9ce04b0fd7f2e971688e2e53b',
+                }
+            },
+            'crvUSD': {
+                symbol: 'crvUSD',
+                name: 'Curve USD',
+                oracles: {
+                    chainlink: '0xEEf0C605546958c1f899b6fB336C20671f9cD49F',
+                    redstone: null,
+                    pyth: null,
+                }
+            },
+            'frxUSD': {
+                symbol: 'frxUSD',
+                name: 'Frax USD',
+                oracles: {
+                    chainlink: null,
+                    redstone: 'redstone-frxusd-feed',
+                    pyth: null,
+                }
+            },
+            'BOLD': {
+                symbol: 'BOLD',
+                name: 'Bold USD',
+                oracles: {
+                    chainlink: null,
+                    redstone: null,
+                    pyth: null, // New token, may not have feeds yet
+                }
+            },
+            'M': {
+                symbol: 'M',
+                name: 'M by Morpho',
+                oracles: {
+                    chainlink: null,
+                    redstone: null,
+                    pyth: null,
+                }
+            },
+            'USDG': {
+                symbol: 'USDG',
+                name: 'USD Governance',
+                oracles: {
+                    chainlink: null,
+                    redstone: null,
+                    pyth: null,
+                }
+            }
+        };
+
+        // Application state
+        let appState = {
+            selectedStablecoins: new Set(Object.keys(STABLECOINS)),
+            selectedOracle: 'chainlink',
+            timeRange: '24h',
+            refreshRate: 900000, // 15 minutes
+            priceData: {},
+            chart: null,
+            refreshInterval: null
+        };
+
+        // Initialize the application
+        function initApp() {
+            setupFilters();
+            setupEventListeners();
+            initChart();
+            startDataFetching();
+        }
+
+        // Setup stablecoin filters
+        function setupFilters() {
+            const container = document.getElementById('stablecoinFilters');
+            container.innerHTML = '';
+
+            Object.entries(STABLECOINS).forEach(([symbol, config]) => {
+                const div = document.createElement('div');
+                div.className = 'checkbox-item';
+                
+                const checkbox = document.createElement('input');
+                checkbox.type = 'checkbox';
+                checkbox.id = `filter-${symbol}`;
+                checkbox.checked = appState.selectedStablecoins.has(symbol);
+                checkbox.addEventListener('change', (e) => {
+                    if (e.target.checked) {
+                        appState.selectedStablecoins.add(symbol);
+                    } else {
+                        appState.selectedStablecoins.delete(symbol);
+                    }
+                    updateChart();
+                    updateStats();
+                });
+
+                const label = document.createElement('label');
+                label.htmlFor = `filter-${symbol}`;
+                label.textContent = symbol;
+
+                div.appendChild(checkbox);
+                div.appendChild(label);
+                container.appendChild(div);
+            });
+        }
+
+        // Setup event listeners
+        function setupEventListeners() {
+            // Oracle selector
+            document.querySelectorAll('.oracle-btn').forEach(btn => {
+                btn.addEventListener('click', (e) => {
+                    document.querySelector('.oracle-btn.active').classList.remove('active');
+                    e.target.classList.add('active');
+                    appState.selectedOracle = e.target.dataset.oracle;
+                    fetchPriceData();
+                });
+            });
+
+            // Time range selector
+            document.getElementById('timeRange').addEventListener('change', (e) => {
+                appState.timeRange = e.target.value;
+                fetchPriceData();
+            });
+
+            // Refresh rate selector
+            document.getElementById('refreshRate').addEventListener('change', (e) => {
+                appState.refreshRate = parseInt(e.target.value);
+                restartDataFetching();
+            });
+        }
+
+        // Initialize chart
+        function initChart() {
+            const ctx = document.getElementById('priceChart').getContext('2d');
+            appState.chart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: [],
+                    datasets: []
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        title: {
+                            display: true,
+                            text: 'Stablecoin Price Evolution',
+                            font: { size: 16, weight: 'bold' }
+                        },
+                        legend: {
+                            position: 'top',
+                            labels: { usePointStyle: true }
+                        }
+                    },
+                    scales: {
+                        x: {
+                            type: 'time',
+                            time: { unit: 'hour' },
+                            title: { display: true, text: 'Time' }
+                        },
+                        y: {
+                            title: { display: true, text: 'Price (USD)' },
+                            min: 0.95,
+                            max: 1.05,
+                            ticks: {
+                                callback: function(value) {
+                                    return '$' + value.toFixed(4);
+                                }
+                            }
+                        }
+                    },
+                    interaction: {
+                        intersect: false,
+                        mode: 'index'
+                    }
+                }
+            });
+        }
+
+        // Generate mock price data (replace with real oracle calls)
+        function generateMockPriceData(symbol) {
+            const now = Date.now();
+            const timeRangeMs = {
+                '1h': 60 * 60 * 1000,
+                '24h': 24 * 60 * 60 * 1000,
+                '7d': 7 * 24 * 60 * 60 * 1000,
+                '30d': 30 * 24 * 60 * 60 * 1000
+            };
+
+            const duration = timeRangeMs[appState.timeRange];
+            const points = Math.min(100, duration / (15 * 60 * 1000)); // Max 100 points
+            const interval = duration / points;
+
+            const data = [];
+            let basePrice = 1.0;
+            
+            // Add some realistic volatility for different stablecoins
+            const volatility = {
+                'USDC': 0.001,
+                'USDT': 0.002,
+                'GHO': 0.005,
+                'crvUSD': 0.003,
+                'frxUSD': 0.002,
+                'BOLD': 0.008,
+                'M': 0.006,
+                'USDG': 0.004
+            };
+
+            const vol = volatility[symbol] || 0.003;
+
+            for (let i = 0; i < points; i++) {
+                const timestamp = now - duration + (i * interval);
+                const randomChange = (Math.random() - 0.5) * vol * 2;
+                basePrice += randomChange;
+                basePrice = Math.max(0.95, Math.min(1.05, basePrice)); // Keep within bounds
+                
+                data.push({
+                    timestamp: new Date(timestamp),
+                    price: basePrice,
+                    oracle: appState.selectedOracle
+                });
+            }
+
+            return data;
+        }
+
+        // Fetch price data (mock implementation)
+        async function fetchPriceData() {
+            const promises = Array.from(appState.selectedStablecoins).map(async symbol => {
+                // In a real implementation, this would call the actual oracle contracts
+                const config = STABLECOINS[symbol];
+                const oracleAddress = config.oracles[appState.selectedOracle];
+                
+                if (!oracleAddress) {
+                    return { symbol, data: null, error: 'Oracle not available' };
+                }
+
+                try {
+                    // Simulate API call delay
+                    await new Promise(resolve => setTimeout(resolve, Math.random() * 500));
+                    
+                    const data = generateMockPriceData(symbol);
+                    return { symbol, data, error: null };
+                } catch (error) {
+                    return { symbol, data: null, error: error.message };
+                }
+            });
+
+            const results = await Promise.all(promises);
+            
+            results.forEach(result => {
+                if (result.data) {
+                    appState.priceData[result.symbol] = result.data;
+                }
+            });
+
+            updateChart();
+            updateStats();
+        }
+
+        // Update chart with current data
+        function updateChart() {
+            if (!appState.chart) return;
+
+            const colors = {
+                'GHO': '#FF6B6B',
+                'USDC': '#4ECDC4',
+                'USDT': '#45B7D1',
+                'crvUSD': '#96CEB4',
+                'frxUSD': '#FFEAA7',
+                'BOLD': '#DDA0DD',
+                'M': '#98D8C8',
+                'USDG': '#F7DC6F'
+            };
+
+            const datasets = [];
+            const allTimestamps = new Set();
+
+            // Collect all timestamps
+            Object.values(appState.priceData).forEach(data => {
+                data?.forEach(point => allTimestamps.add(point.timestamp.getTime()));
+            });
+
+            const sortedTimestamps = Array.from(allTimestamps).sort().map(ts => new Date(ts));
+
+            appState.selectedStablecoins.forEach(symbol => {
+                const data = appState.priceData[symbol];
+                if (!data) return;
+
+                datasets.push({
+                    label: symbol,
+                    data: data.map(point => ({
+                        x: point.timestamp,
+                        y: point.price
+                    })),
+                    borderColor: colors[symbol],
+                    backgroundColor: colors[symbol] + '20',
+                    borderWidth: 2,
+                    fill: false,
+                    tension: 0.1
+                });
+            });
+
+            appState.chart.data.labels = sortedTimestamps;
+            appState.chart.data.datasets = datasets;
+            appState.chart.update('none');
+        }
+
+        // Update statistics cards
+        function updateStats() {
+            const container = document.getElementById('statsGrid');
+            container.innerHTML = '';
+
+            appState.selectedStablecoins.forEach(symbol => {
+                const data = appState.priceData[symbol];
+                const config = STABLECOINS[symbol];
+                
+                const card = document.createElement('div');
+                card.className = 'stat-card';
+
+                if (!data || data.length === 0) {
+                    card.innerHTML = `
+                        <div class="stat-header">
+                            <span class="stat-symbol">${symbol}</span>
+                            <span class="stat-oracle">${appState.selectedOracle}</span>
+                        </div>
+                        <div class="stat-price" style="color: #718096;">No Data</div>
+                        <div class="stat-change neutral">
+                            <span class="status-indicator status-error"></span>
+                            Oracle not available
+                        </div>
+                    `;
+                } else {
+                    const latest = data[data.length - 1];
+                    const previous = data.length > 1 ? data[data.length - 2] : latest;
+                    const change = latest.price - previous.price;
+                    const changePercent = (change / previous.price) * 100;
+
+                    const isStale = Date.now() - latest.timestamp.getTime() > 60000; // 1 minute
+                    const statusClass = isStale ? 'status-stale' : 'status-live';
+                    const statusText = isStale ? 'Stale' : 'Live';
+
+                    card.innerHTML = `
+                        <div class="stat-header">
+                            <span class="stat-symbol">${symbol}</span>
+                            <span class="stat-oracle">${appState.selectedOracle}</span>
+                        </div>
+                        <div class="stat-price ${change > 0 ? 'positive' : change < 0 ? 'negative' : 'neutral'}">
+                            $${latest.price.toFixed(4)}
+                        </div>
+                        <div class="stat-change ${change > 0 ? 'positive' : change < 0 ? 'negative' : 'neutral'}">
+                            <span class="status-indicator ${statusClass}"></span>
+                            ${change >= 0 ? '+' : ''}${changePercent.toFixed(3)}% • ${statusText}
+                        </div>
+                    `;
+                }
+
+                container.appendChild(card);
+            });
+        }
+
+        // Start data fetching with intervals
+        function startDataFetching() {
+            fetchPriceData();
+            appState.refreshInterval = setInterval(fetchPriceData, appState.refreshRate);
+        }
+
+        // Restart data fetching with new interval
+        function restartDataFetching() {
+            if (appState.refreshInterval) {
+                clearInterval(appState.refreshInterval);
+            }
+            startDataFetching();
+        }
+
+        // Initialize app when DOM is loaded
+        document.addEventListener('DOMContentLoaded', initApp);
+
+        // Real Oracle Integration Functions (for future implementation)
+        
+        // Chainlink Price Feed Interface
+        async function getChainlinkPrice(feedAddress) {
+            // This would use ethers.js or web3.js to call the Chainlink aggregator
+            // const aggregator = new ethers.Contract(feedAddress, ABI, provider);
+            // const latestRound = await aggregator.latestRoundData();
+            // return latestRound.answer / 10**8; // Chainlink uses 8 decimals
+        }
+
+        // Redstone Price Feed Interface  
+        async function getRedstonePrice(feedId) {
+            // This would call Redstone's API or on-chain contracts
+            // const response = await fetch(`https://api.redstone.finance/prices?symbol=${feedId}`);
+            // const data = await response.json();
+            // return data.value;
+        }
+
+        // Pyth Price Feed Interface
+        async function getPythPrice(priceId) {
+            // This would use Pyth's EVM SDK
+            // const pythContract = new ethers.Contract(PYTH_CONTRACT_ADDRESS, ABI, provider);
+            // const priceData = await pythContract.getPriceUnsafe(priceId);
+            // return priceData.price / 10**priceData.expo;
+        }
+    </script>
+</body>
+</html>
