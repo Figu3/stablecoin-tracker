@@ -463,41 +463,56 @@
 
         function updateDataInfo() {
             const infoEl = document.getElementById('dataInfo');
-            const totalPoints = Object.values(appState.priceData).reduce((sum, data) => sum + (data?.length || 0), 0);
+            const stats = getDataStats();
             
-            if (totalPoints === 0) {
+            if (stats.totalPoints === 0) {
                 infoEl.textContent = 'No historical data loaded';
                 return;
             }
             
-            let oldestDate = new Date();
-            let newestDate = new Date(0);
+            const daysDiff = Math.ceil((stats.dateRange.newest - stats.dateRange.oldest) / (1000 * 60 * 60 * 24));
+            const realPercentage = Math.round((stats.realVsSimulated.real / stats.totalPoints) * 100);
             
-            Object.values(appState.priceData).forEach(data => {
-                if (data && data.length > 0) {
-                    data.forEach(point => {
-                        if (point.timestamp < oldestDate) oldestDate = point.timestamp;
-                        if (point.timestamp > newestDate) newestDate = point.timestamp;
-                    });
-                }
-            });
-            
-            const daysDiff = Math.ceil((newestDate - oldestDate) / (1000 * 60 * 60 * 24));
-            infoEl.textContent = `${totalPoints} data points over ${daysDiff} days`;
+            infoEl.innerHTML = `
+                <div>${stats.totalPoints} data points over ${daysDiff} days</div>
+                <div style="font-size: 0.7rem; margin-top: 2px;">
+                    ${realPercentage}% real data • ${stats.realVsSimulated.real} oracle + ${stats.realVsSimulated.simulated} simulated
+                </div>
+            `;
         }
 
-        // Data persistence functions
+        // Enhanced data persistence with intelligent storage
         function saveDataToStorage() {
             try {
                 const dataToSave = {
                     priceData: appState.priceData,
                     lastUpdate: new Date().toISOString(),
-                    version: '1.0'
+                    version: '2.0',
+                    metadata: {
+                        totalPoints: Object.values(appState.priceData).reduce((sum, data) => sum + (data?.length || 0), 0),
+                        oldestTimestamp: getOldestTimestamp(),
+                        newestTimestamp: getNewestTimestamp(),
+                        oracles: Object.keys(appState.priceData).reduce((acc, symbol) => {
+                            acc[symbol] = [...new Set(appState.priceData[symbol]?.map(p => p.oracle) || [])];
+                            return acc;
+                        }, {})
+                    }
                 };
+                
                 localStorage.setItem('stablecoin-price-history', JSON.stringify(dataToSave));
+                
+                // Also save a backup with timestamp for data recovery
+                const backupKey = `stablecoin-backup-${new Date().toISOString().split('T')[0]}`;
+                localStorage.setItem(backupKey, JSON.stringify(dataToSave));
+                
+                // Clean up old backups (keep last 7 days)
+                cleanupOldBackups();
+                
                 updateDataInfo();
+                console.log(`Saved ${dataToSave.metadata.totalPoints} data points to storage`);
             } catch (error) {
                 console.warn('Failed to save data to localStorage:', error);
+                showError('Failed to save data. Storage may be full.');
             }
         }
 
@@ -507,6 +522,7 @@
                 if (saved) {
                     const data = JSON.parse(saved);
                     
+                    // Convert string timestamps back to Date objects
                     Object.keys(data.priceData || {}).forEach(symbol => {
                         if (data.priceData[symbol]) {
                             data.priceData[symbol] = data.priceData[symbol].map(point => ({
@@ -517,13 +533,145 @@
                     });
                     
                     appState.priceData = data.priceData || {};
+                    
+                    // Log what we loaded
+                    const totalPoints = Object.values(appState.priceData).reduce((sum, data) => sum + (data?.length || 0), 0);
+                    console.log(`Loaded ${totalPoints} historical data points from storage`);
+                    console.log(`Last update: ${data.lastUpdate}`);
+                    
                     updateDataInfo();
                     return true;
                 }
             } catch (error) {
                 console.warn('Failed to load data from localStorage:', error);
+                // Try to load from backup
+                return loadFromBackup();
             }
             return false;
+        }
+
+        function loadFromBackup() {
+            try {
+                // Try to find the most recent backup
+                const keys = Object.keys(localStorage).filter(key => key.startsWith('stablecoin-backup-'));
+                if (keys.length > 0) {
+                    const latestBackup = keys.sort().pop();
+                    const backupData = JSON.parse(localStorage.getItem(latestBackup));
+                    
+                    Object.keys(backupData.priceData || {}).forEach(symbol => {
+                        if (backupData.priceData[symbol]) {
+                            backupData.priceData[symbol] = backupData.priceData[symbol].map(point => ({
+                                ...point,
+                                timestamp: new Date(point.timestamp)
+                            }));
+                        }
+                    });
+                    
+                    appState.priceData = backupData.priceData || {};
+                    console.log('Loaded data from backup:', latestBackup);
+                    updateDataInfo();
+                    return true;
+                }
+            } catch (error) {
+                console.warn('Failed to load backup data:', error);
+            }
+            return false;
+        }
+
+        function cleanupOldBackups() {
+            try {
+                const keys = Object.keys(localStorage).filter(key => key.startsWith('stablecoin-backup-'));
+                const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+                
+                keys.forEach(key => {
+                    const dateStr = key.replace('stablecoin-backup-', '');
+                    if (dateStr < sevenDaysAgo) {
+                        localStorage.removeItem(key);
+                    }
+                });
+            } catch (error) {
+                console.warn('Failed to cleanup old backups:', error);
+            }
+        }
+
+        function getOldestTimestamp() {
+            let oldest = new Date();
+            Object.values(appState.priceData).forEach(data => {
+                if (data && data.length > 0) {
+                    data.forEach(point => {
+                        if (point.timestamp < oldest) oldest = point.timestamp;
+                    });
+                }
+            });
+            return oldest.toISOString();
+        }
+
+        function getNewestTimestamp() {
+            let newest = new Date(0);
+            Object.values(appState.priceData).forEach(data => {
+                if (data && data.length > 0) {
+                    data.forEach(point => {
+                        if (point.timestamp > newest) newest = point.timestamp;
+                    });
+                }
+            });
+            return newest.toISOString();
+        }
+
+        function shouldFetchNewData() {
+            try {
+                const saved = localStorage.getItem('stablecoin-price-history');
+                if (!saved) return true;
+                
+                const data = JSON.parse(saved);
+                const lastUpdate = new Date(data.lastUpdate);
+                const now = new Date();
+                
+                // Fetch new data if last update was more than 15 minutes ago
+                const timeSinceUpdate = now - lastUpdate;
+                const shouldFetch = timeSinceUpdate > 15 * 60 * 1000; // 15 minutes
+                
+                console.log(`Last update: ${lastUpdate.toLocaleString()}`);
+                console.log(`Time since update: ${Math.round(timeSinceUpdate / 60000)} minutes`);
+                console.log(`Should fetch new data: ${shouldFetch}`);
+                
+                return shouldFetch;
+            } catch (error) {
+                return true;
+            }
+        }
+
+        function getDataStats() {
+            const stats = {
+                totalPoints: 0,
+                coinCounts: {},
+                dateRange: { oldest: new Date(), newest: new Date(0) },
+                oracleCounts: {},
+                realVsSimulated: { real: 0, simulated: 0 }
+            };
+            
+            Object.entries(appState.priceData).forEach(([symbol, data]) => {
+                if (data && data.length > 0) {
+                    stats.coinCounts[symbol] = data.length;
+                    stats.totalPoints += data.length;
+                    
+                    data.forEach(point => {
+                        if (point.timestamp < stats.dateRange.oldest) stats.dateRange.oldest = point.timestamp;
+                        if (point.timestamp > stats.dateRange.newest) stats.dateRange.newest = point.timestamp;
+                        
+                        const oracle = point.oracle || 'unknown';
+                        stats.oracleCounts[oracle] = (stats.oracleCounts[oracle] || 0) + 1;
+                        
+                        if (point.isSimulated) {
+                            stats.realVsSimulated.simulated++;
+                        } else {
+                            stats.realVsSimulated.real++;
+                        }
+                    });
+                }
+            });
+            
+            return stats;
         }
 
         function clearStoredData() {
@@ -699,8 +847,20 @@
             }
         }
 
-        // Data fetching
+        // Smart data fetching - only fetch when needed
         async function fetchRealPriceData() {
+            // Check if we should fetch new data
+            if (!shouldFetchNewData()) {
+                console.log('Skipping data fetch - recent data available');
+                updateConnectionStatus('Using cached data (updated recently)', 'live');
+                return;
+            }
+            
+            console.log('Fetching new oracle data...');
+            updateConnectionStatus('Fetching live oracle data...', 'stale');
+            
+            let fetchedCount = 0;
+            
             for (const symbol of appState.selectedStablecoins) {
                 const config = STABLECOINS[symbol];
                 const oracleConfig = config.oracles[appState.selectedOracle];
@@ -726,16 +886,24 @@
                             appState.priceData[symbol] = [];
                         }
                         
+                        // Check if this is a duplicate timestamp (within 5 minutes)
                         const existing = appState.priceData[symbol].find(point => 
                             Math.abs(point.timestamp - priceData.timestamp) < 5 * 60 * 1000
                         );
                         
                         if (!existing) {
+                            // Mark as real data (not simulated)
+                            priceData.isSimulated = false;
                             appState.priceData[symbol].push(priceData);
+                            fetchedCount++;
+                            
+                            // Sort by timestamp and keep last 2000 points
                             appState.priceData[symbol].sort((a, b) => a.timestamp - b.timestamp);
                             if (appState.priceData[symbol].length > 2000) {
                                 appState.priceData[symbol] = appState.priceData[symbol].slice(-2000);
                             }
+                            
+                            console.log(`New ${symbol} price: ${priceData.price.toFixed(4)} from ${priceData.oracle}`);
                         }
                     }
                 } catch (error) {
@@ -743,7 +911,12 @@
                 }
             }
             
-            saveDataToStorage();
+            if (fetchedCount > 0) {
+                saveDataToStorage();
+                updateConnectionStatus(`Updated with ${fetchedCount} new data points`, 'live');
+            } else {
+                updateConnectionStatus('No new data available', 'stale');
+            }
         }
 
         function filterDataByTimeRange() {
@@ -775,29 +948,98 @@
             refreshBtn.textContent = '🔄 Loading...';
 
             try {
+                // Always load stored data first
                 const hasStoredData = loadDataFromStorage();
                 
-                if (!hasStoredData || Object.keys(appState.priceData).length === 0) {
+                if (hasStoredData) {
+                    console.log('Found stored data, checking freshness...');
+                    
+                    // Display existing data immediately
+                    filterDataByTimeRange();
+                    updateChart();
+                    updateStats();
+                    
+                    // Only generate sample data for coins without any data
+                    appState.selectedStablecoins.forEach(symbol => {
+                        if (!appState.priceData[symbol] || appState.priceData[symbol].length === 0) {
+                            console.log(`Generating sample data for ${symbol} (no stored data)`);
+                            const sampleData = generateSampleDataForSymbol(symbol);
+                            appState.priceData[symbol] = sampleData;
+                        }
+                    });
+                } else {
+                    console.log('No stored data found, generating initial sample data...');
                     appState.priceData = generateSampleData();
                     saveDataToStorage();
+                    
+                    filterDataByTimeRange();
+                    updateChart();
+                    updateStats();
                 }
                 
+                // Try to fetch real data (will skip if recent data exists)
                 await fetchRealPriceData();
-                filterDataByTimeRange();
                 
+                // Update display with any new data
+                filterDataByTimeRange();
                 updateChart();
                 updateStats();
-                updateConnectionStatus('Data updated successfully', 'live');
                 
             } catch (error) {
-                console.error('Error fetching price data:', error);
+                console.error('Error in fetchPriceData:', error);
                 showError('Failed to fetch new price data. Using existing data.');
-                updateConnectionStatus('Using stored/sample data', 'stale');
+                updateConnectionStatus('Error occurred, using stored data', 'error');
             } finally {
                 appState.isLoading = false;
                 refreshBtn.disabled = false;
                 refreshBtn.textContent = '🔄 Refresh';
             }
+        }
+
+        // Generate sample data for a single symbol
+        function generateSampleDataForSymbol(symbol) {
+            const now = new Date();
+            const configs = {
+                'USDC': { baseline: 1.0001, volatility: 0.0008, trend: 0.0001 },
+                'USDT': { baseline: 0.9998, volatility: 0.0012, trend: -0.0002 },
+                'GHO': { baseline: 1.0015, volatility: 0.0025, trend: 0.0008 },
+                'crvUSD': { baseline: 0.9995, volatility: 0.0015, trend: 0.0003 }
+            };
+            
+            const config = configs[symbol] || { baseline: 1.0, volatility: 0.001, trend: 0 };
+            let currentPrice = config.baseline;
+            const data = [];
+            
+            const daysToGenerate = appState.timeRange === '90d' ? 90 : 
+                                 appState.timeRange === '30d' ? 30 : 
+                                 appState.timeRange === '14d' ? 14 : 7;
+            
+            const pointsPerDay = daysToGenerate > 30 ? 2 : 4;
+            const intervalHours = 24 / pointsPerDay;
+            const totalPoints = daysToGenerate * pointsPerDay;
+            
+            for (let i = totalPoints; i >= 0; i--) {
+                const timestamp = new Date(now.getTime() - (i * intervalHours * 60 * 60 * 1000));
+                
+                const timeProgress = (totalPoints - i) / totalPoints;
+                const longTermTrend = config.trend * timeProgress;
+                const weeklyPattern = Math.sin(timeProgress * daysToGenerate / 7 * 2 * Math.PI) * config.volatility * 0.5;
+                const dailyPattern = Math.sin(timeProgress * daysToGenerate * 2 * Math.PI) * config.volatility * 0.3;
+                const randomWalk = (Math.random() - 0.5) * config.volatility * 2;
+                const stressEvent = Math.random() < 0.01 ? (Math.random() - 0.5) * config.volatility * 5 : 0;
+                
+                currentPrice += longTermTrend + weeklyPattern + dailyPattern + randomWalk + stressEvent;
+                currentPrice = Math.max(0.980, Math.min(1.020, currentPrice));
+                
+                data.push({
+                    price: currentPrice,
+                    timestamp: timestamp,
+                    oracle: appState.selectedOracle,
+                    isSimulated: true
+                });
+            }
+            
+            return data;
         }
 
         // Chart functions
@@ -1064,28 +1306,62 @@
                 clearInterval(appState.refreshInterval);
             }
             
-            appState.refreshInterval = setInterval(() => {
-                console.log('Auto-refreshing price data...');
-                fetchPriceData();
-            }, 15 * 60 * 1000);
+            // More intelligent auto-refresh
+            appState.refreshInterval = setInterval(async () => {
+                console.log('Auto-refresh: Checking if new data is needed...');
+                
+                if (shouldFetchNewData()) {
+                    console.log('Auto-refreshing price data...');
+                    await fetchRealPriceData();
+                    filterDataByTimeRange();
+                    updateChart();
+                    updateStats();
+                } else {
+                    console.log('Auto-refresh: Data is still fresh, skipping.');
+                }
+            }, 15 * 60 * 1000); // Check every 15 minutes
         }
 
         async function initApp() {
             try {
-                updateConnectionStatus('Initializing...', 'stale');
+                updateConnectionStatus('Setting up dashboard...', 'stale');
                 
+                // Setup UI immediately
                 setupFilters();
                 setupEventListeners();
                 initChart();
                 
-                try {
-                    await initProvider();
-                } catch (error) {
-                    console.warn('Provider initialization failed, using sample data only:', error);
-                    updateConnectionStatus('Using sample data only', 'stale');
+                // Load stored data first for instant display
+                const hasStoredData = loadDataFromStorage();
+                
+                // Generate sample data immediately if no stored data
+                if (!hasStoredData || Object.keys(appState.priceData).length === 0) {
+                    updateConnectionStatus('Loading sample data...', 'stale');
+                    appState.priceData = generateSampleData();
+                    saveDataToStorage();
                 }
                 
-                await fetchPriceData();
+                // Display chart immediately with available data
+                filterDataByTimeRange();
+                updateChart();
+                updateStats();
+                updateConnectionStatus('Dashboard ready • Fetching live data...', 'live');
+                
+                // Initialize provider and fetch real data in background
+                setTimeout(async () => {
+                    try {
+                        await initProvider();
+                        await fetchRealPriceData();
+                        updateChart();
+                        updateStats();
+                        updateConnectionStatus('Live data updated', 'live');
+                    } catch (error) {
+                        console.warn('Background data fetch failed:', error);
+                        updateConnectionStatus('Using sample data (live fetch failed)', 'stale');
+                    }
+                }, 100); // Small delay to ensure UI renders first
+                
+                // Start auto refresh
                 startAutoRefresh();
                 
             } catch (error) {
