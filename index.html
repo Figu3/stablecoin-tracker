@@ -1127,48 +1127,79 @@
         }
 
         function updateChart() {
-            if (!appState.chart) return;
+            if (!appState.chart) {
+                console.warn('Chart not initialized, attempting to reinitialize...');
+                initChart();
+                if (!appState.chart) {
+                    console.error('Failed to reinitialize chart');
+                    return;
+                }
+            }
 
-            const colors = {
-                'USDC': '#4ECDC4',
-                'USDT': '#45B7D1',
-                'GHO': '#FF6B6B',
-                'crvUSD': '#96CEB4'
-            };
+            try {
+                const colors = {
+                    'USDC': '#4ECDC4',
+                    'USDT': '#45B7D1',
+                    'GHO': '#FF6B6B',
+                    'crvUSD': '#96CEB4'
+                };
 
-            const datasets = [];
+                const datasets = [];
 
-            appState.selectedStablecoins.forEach(symbol => {
-                const data = appState.priceData[symbol];
-                if (!data || data.length === 0) return;
+                console.log('Updating chart with data for:', Array.from(appState.selectedStablecoins));
 
-                const chartData = data.map(point => ({
-                    x: point.timestamp,
-                    y: point.price
-                }));
+                appState.selectedStablecoins.forEach(symbol => {
+                    const data = appState.priceData[symbol];
+                    if (!data || data.length === 0) {
+                        console.log(`No data for ${symbol}`);
+                        return;
+                    }
 
-                datasets.push({
-                    label: symbol,
-                    data: chartData,
-                    borderColor: colors[symbol] || '#718096',
-                    backgroundColor: (colors[symbol] || '#718096') + '20',
-                    borderWidth: 2,
-                    fill: false,
-                    tension: 0.1,
-                    pointRadius: appState.timeRange === '90d' ? 1 : 2,
-                    pointHoverRadius: 5,
-                    pointBackgroundColor: colors[symbol] || '#718096'
+                    console.log(`Adding ${data.length} points for ${symbol}`);
+
+                    const chartData = data.map(point => ({
+                        x: point.timestamp,
+                        y: point.price
+                    }));
+
+                    datasets.push({
+                        label: symbol,
+                        data: chartData,
+                        borderColor: colors[symbol] || '#718096',
+                        backgroundColor: (colors[symbol] || '#718096') + '20',
+                        borderWidth: 2,
+                        fill: false,
+                        tension: 0.1,
+                        pointRadius: appState.timeRange === '90d' ? 1 : 2,
+                        pointHoverRadius: 5,
+                        pointBackgroundColor: colors[symbol] || '#718096'
+                    });
                 });
-            });
 
-            appState.chart.data.datasets = datasets;
-            appState.chart.options.plugins.title.text = `Stablecoin Price Evolution (${appState.timeRange.toUpperCase()})`;
-            appState.chart.options.scales.y.min = appState.timeRange === '90d' ? 0.980 : 0.985;
-            appState.chart.options.scales.y.max = appState.timeRange === '90d' ? 1.020 : 1.015;
-            appState.chart.options.scales.y.ticks.stepSize = appState.timeRange === '90d' ? 0.010 : 0.005;
-            appState.chart.options.scales.x.time.unit = appState.timeRange === '7d' ? 'hour' : appState.timeRange === '90d' ? 'week' : 'day';
-            appState.chart.options.scales.x.ticks.maxTicksLimit = appState.timeRange === '90d' ? 8 : 12;
-            appState.chart.update();
+                console.log(`Created ${datasets.length} datasets for chart`);
+
+                // Update chart data
+                appState.chart.data.datasets = datasets;
+                
+                // Update chart options based on time range
+                const timeUnit = appState.timeRange === '7d' ? 'hour' : 
+                               appState.timeRange === '90d' ? 'week' : 'day';
+                               
+                appState.chart.options.scales.x.time.unit = timeUnit;
+                appState.chart.options.scales.x.ticks.maxTicksLimit = appState.timeRange === '90d' ? 8 : 12;
+                appState.chart.options.scales.y.min = appState.timeRange === '90d' ? 0.980 : 0.985;
+                appState.chart.options.scales.y.max = appState.timeRange === '90d' ? 1.020 : 1.015;
+                appState.chart.options.scales.y.ticks.stepSize = appState.timeRange === '90d' ? 0.010 : 0.005;
+                appState.chart.options.plugins.title.text = `Stablecoin Price Evolution (${appState.timeRange.toUpperCase()})`;
+                
+                // Update the chart
+                appState.chart.update();
+                console.log('Chart updated successfully');
+                
+            } catch (error) {
+                console.error('Error updating chart:', error);
+                showError(`Chart update failed: ${error.message}`);
+            }
         }
 
         function updateStats() {
@@ -1329,6 +1360,15 @@
                 // Setup UI immediately
                 setupFilters();
                 setupEventListeners();
+                
+                // Wait for Chart.js to be fully loaded before initializing
+                if (typeof Chart === 'undefined') {
+                    console.error('Chart.js not loaded!');
+                    showError('Chart library failed to load. Please refresh the page.');
+                    return;
+                }
+                
+                // Initialize chart
                 initChart();
                 
                 // Load stored data first for instant display
@@ -1359,7 +1399,7 @@
                         console.warn('Background data fetch failed:', error);
                         updateConnectionStatus('Using sample data (live fetch failed)', 'stale');
                     }
-                }, 100); // Small delay to ensure UI renders first
+                }, 500); // Increased delay to ensure UI renders first
                 
                 // Start auto refresh
                 startAutoRefresh();
@@ -1371,7 +1411,18 @@
             }
         }
 
-        document.addEventListener('DOMContentLoaded', initApp);
+        document.addEventListener('DOMContentLoaded', () => {
+            console.log('DOM loaded, starting app initialization...');
+            
+            // Add debugging information
+            console.log('Chart.js available:', typeof Chart !== 'undefined');
+            console.log('Ethers available:', typeof ethers !== 'undefined');
+            
+            // Small delay to ensure all scripts are fully loaded
+            setTimeout(() => {
+                initApp();
+            }, 100);
+        });
     </script>
 </body>
 </html>
