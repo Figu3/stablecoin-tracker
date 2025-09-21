@@ -4,9 +4,6 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Stablecoin Price Tracker - Chainlink Oracles</title>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/date-fns/2.30.0/index.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/ethers/6.8.0/ethers.umd.min.js"></script>
     <style>
         * {
             margin: 0;
@@ -302,6 +299,16 @@
             cursor: not-allowed;
         }
 
+        .demo-notice {
+            background: rgba(255, 193, 7, 0.1);
+            border: 1px solid rgba(255, 193, 7, 0.3);
+            color: #b7791f;
+            padding: 15px;
+            border-radius: 10px;
+            margin-bottom: 20px;
+            text-align: center;
+        }
+
         @media (max-width: 768px) {
             .container {
                 padding: 15px;
@@ -339,8 +346,8 @@
 
         <div class="status-bar">
             <div class="status-item">
-                <div class="status-indicator" id="connection-status"></div>
-                <span id="connection-text">Connecting to Ethereum...</span>
+                <div class="status-indicator connecting" id="connection-status"></div>
+                <span id="connection-text">Initializing...</span>
             </div>
             <div class="status-item">
                 <span>Last Update: <span id="last-update">-</span></span>
@@ -350,6 +357,11 @@
                     Refresh Data
                 </button>
             </div>
+        </div>
+
+        <div id="demo-notice" class="demo-notice" style="display: none;">
+            <strong>Demo Mode:</strong> Using simulated data due to connection issues. 
+            The app will automatically switch to live data when connection is restored.
         </div>
 
         <div class="controls">
@@ -375,22 +387,27 @@
             <h3 class="chart-title">Price Evolution vs $1.00 USD</h3>
             <div id="chart-loading" class="loading">
                 <div class="spinner"></div>
-                <span>Loading price data...</span>
+                <span>Loading libraries and price data...</span>
             </div>
             <canvas id="priceChart" style="display: none;"></canvas>
         </div>
     </div>
 
     <script>
+        // Debug logging
+        function log(message, type = 'info') {
+            const timestamp = new Date().toISOString();
+            console[type](`[${timestamp}] ${message}`);
+        }
+
         // Chainlink Price Feed Addresses on Ethereum Mainnet
         const CHAINLINK_FEEDS = {
-            'USDC': '0x8fFfFfd4AfB6115b954Bd326cbe7B4BA576818f6',  // USDC/USD
-            'USDT': '0x3E7d1eAB13ad0104d2750B8863b489D65364e32D',  // USDT/USD  
-            'DAI': '0xAed0c38402a5d19df6E4c03F4E2DceD6e29c1ee9',   // DAI/USD (using as proxy for other stables)
-            'FRAX': '0xB9E1E3A9feFf48998E45Fa90847ed4D467E8BcfD'   // FRAX/USD
+            'USDC': '0x8fFfFfd4AfB6115b954Bd326cbe7B4BA576818f6',
+            'USDT': '0x3E7d1eAB13ad0104d2750B8863b489D65364e32D',
+            'DAI': '0xAed0c38402a5d19df6E4c03F4E2DceD6e29c1ee9',
+            'FRAX': '0xB9E1E3A9feFf48998E45Fa90847ed4D467E8BcfD'
         };
 
-        // Map available stablecoins to Chainlink feeds (some may use proxies)
         const STABLECOIN_CONFIG = {
             'USDC': { 
                 name: 'USD Coin', 
@@ -404,12 +421,12 @@
             },
             'GHO': { 
                 name: 'GHO', 
-                feed: CHAINLINK_FEEDS.DAI, // Using DAI feed as proxy
+                feed: CHAINLINK_FEEDS.DAI,
                 color: '#ff6b8a'
             },
             'crvUSD': { 
                 name: 'Curve USD', 
-                feed: CHAINLINK_FEEDS.DAI, // Using DAI feed as proxy
+                feed: CHAINLINK_FEEDS.DAI,
                 color: '#f9a825'
             },
             'frxUSD': { 
@@ -419,22 +436,21 @@
             },
             'BOLD': { 
                 name: 'Bold USD', 
-                feed: CHAINLINK_FEEDS.DAI, // Using DAI feed as proxy
+                feed: CHAINLINK_FEEDS.DAI,
                 color: '#ef4444'
             },
             'M': { 
                 name: 'M USD', 
-                feed: CHAINLINK_FEEDS.DAI, // Using DAI feed as proxy
+                feed: CHAINLINK_FEEDS.DAI,
                 color: '#06b6d4'
             },
             'USDG': { 
                 name: 'USD Governance', 
-                feed: CHAINLINK_FEEDS.DAI, // Using DAI feed as proxy
+                feed: CHAINLINK_FEEDS.DAI,
                 color: '#84cc16'
             }
         };
 
-        // Chainlink Price Feed ABI (only need latestRoundData function)
         const CHAINLINK_ABI = [
             {
                 "inputs": [],
@@ -465,37 +481,112 @@
             priceData: new Map(),
             chart: null,
             provider: null,
-            isLoading: false
+            isLoading: false,
+            librariesLoaded: false,
+            demoMode: false
         };
 
-        // Ethereum provider setup
-        async function initializeProvider() {
+        // Library loading with fallbacks
+        async function loadLibraries() {
             try {
-                // Try to use public RPC endpoints (rate limited but free)
+                updateConnectionStatus('connecting', 'Loading libraries...');
+                
+                // Load Chart.js
+                if (typeof Chart === 'undefined') {
+                    await loadScript('https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.js');
+                }
+                
+                // Load date adapter for Chart.js
+                if (typeof Chart !== 'undefined' && !Chart._adapters._date) {
+                    await loadScript('https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3.0.0/dist/chartjs-adapter-date-fns.bundle.min.js');
+                }
+                
+                // Load Ethers.js
+                if (typeof ethers === 'undefined') {
+                    await loadScript('https://cdn.jsdelivr.net/npm/ethers@6.8.0/dist/ethers.umd.min.js');
+                }
+                
+                appState.librariesLoaded = true;
+                log('All libraries loaded successfully');
+                return true;
+                
+            } catch (error) {
+                log(`Library loading failed: ${error.message}`, 'error');
+                appState.demoMode = true;
+                showDemoNotice();
+                return false;
+            }
+        }
+
+        function loadScript(src) {
+            return new Promise((resolve, reject) => {
+                const script = document.createElement('script');
+                script.src = src;
+                script.onload = resolve;
+                script.onerror = () => reject(new Error(`Failed to load ${src}`));
+                document.head.appendChild(script);
+            });
+        }
+
+        function showDemoNotice() {
+            document.getElementById('demo-notice').style.display = 'block';
+        }
+
+        function hideDemoNotice() {
+            document.getElementById('demo-notice').style.display = 'none';
+        }
+
+        async function initializeProvider() {
+            if (!appState.librariesLoaded || typeof ethers === 'undefined') {
+                log('Ethers.js not available, using demo mode', 'warn');
+                appState.demoMode = true;
+                return null;
+            }
+
+            try {
+                updateConnectionStatus('connecting', 'Connecting to Ethereum...');
+                
                 const publicRPCs = [
                     'https://eth.llamarpc.com',
                     'https://rpc.ankr.com/eth',
                     'https://ethereum.publicnode.com',
-                    'https://eth-mainnet.public.blastapi.io'
+                    'https://rpc.flashbots.net',
+                    'https://cloudflare-eth.com'
                 ];
 
                 for (const rpc of publicRPCs) {
                     try {
+                        log(`Trying RPC: ${rpc}`);
                         const provider = new ethers.JsonRpcProvider(rpc);
-                        await provider.getBlockNumber(); // Test connection
+                        
+                        // Test with timeout
+                        const blockNumber = await Promise.race([
+                            provider.getBlockNumber(),
+                            new Promise((_, reject) => 
+                                setTimeout(() => reject(new Error('Timeout')), 5000)
+                            )
+                        ]);
+                        
+                        log(`Connected to ${rpc}, block: ${blockNumber}`);
                         appState.provider = provider;
+                        appState.demoMode = false;
+                        hideDemoNotice();
                         updateConnectionStatus('connected', 'Connected to Ethereum');
                         return provider;
+                        
                     } catch (e) {
-                        console.warn(`Failed to connect to ${rpc}:`, e.message);
+                        log(`RPC ${rpc} failed: ${e.message}`, 'warn');
                         continue;
                     }
                 }
                 
                 throw new Error('All RPC endpoints failed');
+                
             } catch (error) {
-                console.error('Provider initialization failed:', error);
-                updateConnectionStatus('error', 'Connection failed - using demo data');
+                log(`Provider initialization failed: ${error.message}`, 'error');
+                appState.demoMode = true;
+                showDemoNotice();
+                updateConnectionStatus('error', 'Using demo data');
                 return null;
             }
         }
@@ -508,23 +599,37 @@
             statusText.textContent = text;
         }
 
+        function generateDemoPrice(symbol, basePrice = 1.0) {
+            // Generate realistic stablecoin price with small variations
+            const variation = (Math.random() - 0.5) * 0.02; // ±1% max
+            const noise = (Math.random() - 0.5) * 0.002; // Small noise
+            return Math.max(0.98, Math.min(1.02, basePrice + variation + noise));
+        }
+
         async function fetchPriceFromChainlink(symbol, config) {
-            if (!appState.provider) {
-                // Return simulated data if no provider
+            if (appState.demoMode || !appState.provider) {
                 return {
-                    price: 1.0 + (Math.random() - 0.5) * 0.02, // ±1% variation
+                    price: generateDemoPrice(symbol),
                     timestamp: Date.now(),
                     source: 'Demo Data'
                 };
             }
 
             try {
+                log(`Fetching ${symbol} price from Chainlink...`);
                 const contract = new ethers.Contract(config.feed, CHAINLINK_ABI, appState.provider);
                 
-                const [roundId, answer, startedAt, updatedAt, answeredInRound] = await contract.latestRoundData();
-                const decimals = await contract.decimals();
+                const [roundId, answer, startedAt, updatedAt, answeredInRound] = await Promise.race([
+                    contract.latestRoundData(),
+                    new Promise((_, reject) => 
+                        setTimeout(() => reject(new Error('Oracle timeout')), 10000)
+                    )
+                ]);
                 
+                const decimals = await contract.decimals();
                 const price = Number(answer) / Math.pow(10, Number(decimals));
+                
+                log(`${symbol} price: $${price.toFixed(4)}`);
                 
                 return {
                     price: price,
@@ -532,12 +637,12 @@
                     source: 'Chainlink',
                     roundId: Number(roundId)
                 };
-            } catch (error) {
-                console.error(`Error fetching ${symbol} price:`, error);
                 
-                // Return fallback data with slight randomization
+            } catch (error) {
+                log(`Error fetching ${symbol} price: ${error.message}`, 'error');
+                
                 return {
-                    price: 1.0 + (Math.random() - 0.5) * 0.015,
+                    price: generateDemoPrice(symbol),
                     timestamp: Date.now(),
                     source: 'Fallback',
                     error: error.message
@@ -546,7 +651,10 @@
         }
 
         async function fetchAllPrices() {
-            if (appState.isLoading) return;
+            if (appState.isLoading) {
+                log('Price fetch already in progress, skipping...');
+                return;
+            }
             
             appState.isLoading = true;
             const refreshBtn = document.getElementById('refresh-btn');
@@ -554,9 +662,21 @@
             refreshBtn.textContent = 'Updating...';
 
             try {
+                log('Starting price fetch for all stablecoins...');
+                
                 const promises = Object.entries(STABLECOIN_CONFIG).map(async ([symbol, config]) => {
-                    const priceData = await fetchPriceFromChainlink(symbol, config);
-                    return [symbol, priceData];
+                    try {
+                        const priceData = await fetchPriceFromChainlink(symbol, config);
+                        return [symbol, priceData];
+                    } catch (error) {
+                        log(`Failed to fetch ${symbol}: ${error.message}`, 'error');
+                        return [symbol, {
+                            price: generateDemoPrice(symbol),
+                            timestamp: Date.now(),
+                            source: 'Error Fallback',
+                            error: error.message
+                        }];
+                    }
                 });
 
                 const results = await Promise.all(promises);
@@ -573,18 +693,20 @@
                         source: data.source
                     });
                     
-                    // Keep only last 100 data points to manage memory
+                    // Keep only last 100 data points
                     if (history.length > 100) {
                         history.shift();
                     }
                 });
 
                 updateStatsCards();
-                updateChart();
+                await updateChart();
                 updateLastUpdateTime();
                 
+                log('Price fetch completed successfully');
+                
             } catch (error) {
-                console.error('Error fetching prices:', error);
+                log(`Error in fetchAllPrices: ${error.message}`, 'error');
                 showErrorMessage('Failed to fetch price data: ' + error.message);
             } finally {
                 appState.isLoading = false;
@@ -626,11 +748,20 @@
             });
         }
 
-        function updateChart() {
+        async function updateChart() {
             const ctx = document.getElementById('priceChart');
             const loading = document.getElementById('chart-loading');
             
-            if (!ctx) return;
+            if (!ctx) {
+                log('Chart canvas not found', 'error');
+                return;
+            }
+
+            // Check if Chart.js is available
+            if (typeof Chart === 'undefined') {
+                loading.innerHTML = '<div class="spinner"></div><span>Chart library not available - using demo mode</span>';
+                return;
+            }
 
             loading.style.display = 'none';
             ctx.style.display = 'block';
@@ -663,80 +794,89 @@
                 });
             });
 
-            appState.chart = new Chart(ctx, {
-                type: 'line',
-                data: { datasets },
-                options: {
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    plugins: {
-                        legend: {
-                            position: 'top',
-                            labels: {
-                                usePointStyle: true,
-                                padding: 20
+            try {
+                appState.chart = new Chart(ctx, {
+                    type: 'line',
+                    data: { datasets },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: {
+                            legend: {
+                                position: 'top',
+                                labels: {
+                                    usePointStyle: true,
+                                    padding: 20
+                                }
+                            },
+                            tooltip: {
+                                mode: 'index',
+                                intersect: false,
+                                callbacks: {
+                                    title: function(context) {
+                                        return new Date(context[0].parsed.x).toLocaleString();
+                                    },
+                                    label: function(context) {
+                                        const deviation = ((context.parsed.y - 1.0) * 100);
+                                        return `${context.dataset.label}: $${context.parsed.y.toFixed(4)} (${deviation >= 0 ? '+' : ''}${deviation.toFixed(3)}%)`;
+                                    }
+                                }
                             }
                         },
-                        tooltip: {
-                            mode: 'index',
-                            intersect: false,
-                            callbacks: {
-                                title: function(context) {
-                                    return new Date(context[0].parsed.x).toLocaleString();
+                        scales: {
+                            x: {
+                                type: 'time',
+                                time: {
+                                    unit: 'minute',
+                                    displayFormats: {
+                                        minute: 'HH:mm',
+                                        hour: 'HH:mm',
+                                        day: 'MMM dd'
+                                    }
                                 },
-                                label: function(context) {
-                                    const deviation = ((context.parsed.y - 1.0) * 100);
-                                    return `${context.dataset.label}: $${context.parsed.y.toFixed(4)} (${deviation >= 0 ? '+' : ''}${deviation.toFixed(3)}%)`;
-                                }
-                            }
-                        }
-                    },
-                    scales: {
-                        x: {
-                            type: 'time',
-                            time: {
-                                unit: 'minute',
-                                displayFormats: {
-                                    minute: 'HH:mm',
-                                    hour: 'HH:mm',
-                                    day: 'MMM dd'
+                                title: {
+                                    display: true,
+                                    text: 'Time'
                                 }
                             },
-                            title: {
-                                display: true,
-                                text: 'Time'
+                            y: {
+                                title: {
+                                    display: true,
+                                    text: 'Price (USD)'
+                                },
+                                min: 0.985,
+                                max: 1.015,
+                                ticks: {
+                                    stepSize: 0.005,
+                                    callback: function(value) {
+                                        return '$' + value.toFixed(3);
+                                    }
+                                },
+                                grid: {
+                                    color: function(context) {
+                                        return Math.abs(context.tick.value - 1.0) < 0.0001 ? '#e53e3e' : '#e2e8f0';
+                                    },
+                                    lineWidth: function(context) {
+                                        return Math.abs(context.tick.value - 1.0) < 0.0001 ? 2 : 1;
+                                    }
+                                }
                             }
                         },
-                        y: {
-                            title: {
-                                display: true,
-                                text: 'Price (USD)'
-                            },
-                            min: 0.985,
-                            max: 1.015,
-                            ticks: {
-                                stepSize: 0.005,
-                                callback: function(value) {
-                                    return '$' + value.toFixed(3);
-                                }
-                            },
-                            grid: {
-                                color: function(context) {
-                                    return Math.abs(context.tick.value - 1.0) < 0.0001 ? '#e53e3e' : '#e2e8f0';
-                                },
-                                lineWidth: function(context) {
-                                    return Math.abs(context.tick.value - 1.0) < 0.0001 ? 2 : 1;
-                                }
-                            }
+                        interaction: {
+                            mode: 'nearest',
+                            axis: 'x',
+                            intersect: false
                         }
-                    },
-                    interaction: {
-                        mode: 'nearest',
-                        axis: 'x',
-                        intersect: false
                     }
-                }
-            });
+                });
+                
+                log('Chart updated successfully');
+                
+            } catch (error) {
+                log(`Chart creation failed: ${error.message}`, 'error');
+                loading.style.display = 'flex';
+                loading.innerHTML = '<div class="spinner"></div><span>Chart creation failed - check console for details</span>';
+            }
         }
 
         function updateLastUpdateTime() {
@@ -761,64 +901,4 @@
             
             Object.entries(STABLECOIN_CONFIG).forEach(([symbol, config]) => {
                 const filterItem = document.createElement('div');
-                filterItem.className = 'filter-item active';
-                
-                filterItem.innerHTML = `
-                    <input type="checkbox" id="filter-${symbol}" checked>
-                    <label for="filter-${symbol}" class="filter-label">${symbol}</label>
-                `;
-                
-                const checkbox = filterItem.querySelector('input');
-                checkbox.addEventListener('change', (e) => {
-                    if (e.target.checked) {
-                        appState.activeStablecoins.add(symbol);
-                        filterItem.classList.add('active');
-                    } else {
-                        appState.activeStablecoins.delete(symbol);
-                        filterItem.classList.remove('active');
-                    }
-                    updateChart();
-                });
-                
-                container.appendChild(filterItem);
-            });
-        }
-
-        function initializeTimeControls() {
-            const buttons = document.querySelectorAll('.time-btn');
-            
-            buttons.forEach(btn => {
-                btn.addEventListener('click', () => {
-                    buttons.forEach(b => b.classList.remove('active'));
-                    btn.classList.add('active');
-                    appState.timeRange = btn.dataset.range;
-                    updateChart();
-                });
-            });
-        }
-
-        // Initialize application
-        async function init() {
-            console.log('Initializing Stablecoin Tracker...');
-            
-            // Initialize UI components
-            initializeFilters();
-            initializeTimeControls();
-            
-            // Initialize Ethereum connection
-            await initializeProvider();
-            
-            // Fetch initial data
-            await fetchAllPrices();
-            
-            // Set up periodic updates (every 2 minutes to respect rate limits)
-            setInterval(fetchAllPrices, 120000);
-            
-            console.log('Stablecoin Tracker initialized successfully');
-        }
-
-        // Start the application when DOM is ready
-        document.addEventListener('DOMContentLoaded', init);
-    </script>
-</body>
-</html>
+                filterItem.className = 'filter-item active
